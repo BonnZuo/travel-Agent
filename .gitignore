@@ -1,2 +1,6 @@
 .DS_Store
 网页.JPG
+.env
+data/*.db
+data/*.db-shm
+data/*.db-wal

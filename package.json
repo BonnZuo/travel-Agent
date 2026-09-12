@@ -1,0 +1,11 @@
+{
+  "name": "wanderly-travel-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "dev": "node --env-file-if-exists=.env --watch server/index.mjs",
+    "test:api": "node --test server/*.test.mjs"
+  }
+}

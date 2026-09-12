@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-agent.local/schemas/trip.schema.json",
+  "title": "Travel Agent Trip",
+  "description": "旅行助手的行程对象；AI 生成与 API 返回均须符合此结构。",
+  "type": "object",
+  "required": ["id", "version", "status", "title", "originalPrompt", "destinations", "durationDays", "travelers", "preferences", "itinerary", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "description": "UUID 或数据库主键" },
+    "userId": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["draft", "planning", "ready", "archived"] },
+    "title": { "type": "string", "minLength": 1 },
+    "originalPrompt": { "type": "string", "minLength": 1 },
+    "origin": { "type": "string" },
+    "destinations": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "startDate": { "type": "string", "format": "date" },
+    "endDate": { "type": "string", "format": "date" },
+    "durationDays": { "type": "integer", "minimum": 1, "maximum": 30 },
+    "travelers": {
+      "type": "object",
+      "required": ["count"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "tripType": { "enum": ["solo", "couple", "friends", "family", "business"] },
+        "hasChildren": { "type": "boolean" },
+        "hasSeniors": { "type": "boolean" },
+        "mobilityNeeds": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "budget": { "$ref": "#/$defs/budget" },
+    "preferences": {
+      "type": "object",
+      "required": ["interests", "pace", "avoid", "constraints"],
+      "properties": {
+        "interests": { "type": "array", "items": { "type": "string" } },
+        "pace": { "enum": ["relaxed", "balanced", "packed"] },
+        "accommodationPreferences": { "type": "array", "items": { "type": "string" } },
+        "foodPreferences": { "type": "array", "items": { "type": "string" } },
+        "avoid": { "type": "array", "items": { "type": "string" } },
+        "constraints": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "itinerary": { "type": "array", "items": { "$ref": "#/$defs/itineraryDay" } },
+    "album": { "$ref": "#/$defs/travelAlbum" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "moneyRange": {
+      "type": "object",
+      "required": ["min", "max", "currency"],
+      "properties": {
+        "min": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 },
+        "currency": { "enum": ["CNY", "JPY", "USD", "EUR", "GBP"] }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": ["perPerson", "currency", "categories"],
+      "properties": {
+        "perPerson": { "type": "number", "minimum": 0 },
+        "currency": { "enum": ["CNY", "JPY", "USD", "EUR", "GBP"] },
+        "total": { "type": "number", "minimum": 0 },
+        "categories": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/moneyRange" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "itineraryDay": {
+      "type": "object",
+      "required": ["id", "dayNumber", "date", "city", "theme", "activities", "estimatedBudget", "locked"],
+      "properties": {
+        "id": { "type": "string" },
+        "dayNumber": { "type": "integer", "minimum": 1 },
+        "date": { "type": "string", "format": "date" },
+        "city": { "type": "string" },
+        "theme": { "type": "string" },
+        "activities": { "type": "array", "items": { "$ref": "#/$defs/activity" } },
+        "estimatedBudget": { "$ref": "#/$defs/moneyRange" },
+        "walkingDistanceKm": { "type": "number", "minimum": 0 },
+        "transitMinutes": { "type": "integer", "minimum": 0 },
+        "tip": { "type": "string" },
+        "locked": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "activity": {
+      "type": "object",
+      "required": ["id", "title", "category", "timeSlot", "notes", "reservationRequired", "locked"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "enum": ["transport", "accommodation", "attraction", "food", "shopping", "nature", "culture", "experience", "free_time"] },
+        "timeSlot": { "enum": ["morning", "afternoon", "evening", "all_day"] },
+        "startTime": { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
+        "durationMinutes": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string" },
+        "estimatedCost": { "$ref": "#/$defs/moneyRange" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "reservationRequired": { "type": "boolean" },
+        "locked": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "place": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 }
+      },
+      "additionalProperties": false
+    },
+    "travelPhoto": {
+      "type": "object",
+      "required": ["id", "tripId", "url", "uploadStatus", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "tripId": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "thumbnailUrl": { "type": "string", "format": "uri" },
+        "caption": { "type": "string", "maxLength": 280 },
+        "takenAt": { "type": "string", "format": "date-time" },
+        "place": { "$ref": "#/$defs/place" },
+        "dayNumber": { "type": "integer", "minimum": 1 },
+        "uploadStatus": { "enum": ["pending", "uploading", "ready", "failed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "travelAlbum": {
+      "type": "object",
+      "required": ["id", "tripId", "title", "photos", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "tripId": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "coverPhotoId": { "type": "string" },
+        "photos": { "type": "array", "items": { "$ref": "#/$defs/travelPhoto" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
