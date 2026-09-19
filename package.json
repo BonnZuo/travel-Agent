@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.mjs",
     "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch server/index.mjs",
-    "test:api": "node --test server/*.test.mjs"
+    "check": "node server/validate.mjs",
+    "test": "node --test server/*.test.mjs",
+    "test:api": "npm test"
   }
 }
