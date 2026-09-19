@@ -145,6 +145,7 @@
         "estimatedBudget": { "$ref": "#/$defs/moneyRange" },
         "walkingDistanceKm": { "type": "number", "minimum": 0 },
         "transitMinutes": { "type": "integer", "minimum": 0 },
+        "transportationNotes": { "type": "array", "items": { "type": "string" } },
         "tip": { "type": "string" },
         "locked": { "type": "boolean" }
       },

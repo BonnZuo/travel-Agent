@@ -112,6 +112,8 @@ function validatePlan(plan, durationDays) {
   if (plan.itinerary.length !== durationDays) throw generationError(`模型返回 ${plan.itinerary.length} 天行程，与请求的 ${durationDays} 天不一致`);
   const dayNumbers = plan.itinerary.map((day) => day.dayNumber).sort((a, b) => a - b);
   if (!dayNumbers.every((dayNumber, index) => dayNumber === index + 1)) throw generationError("模型返回的日期编号不连续");
+  const invalidActivityDay = plan.itinerary.find((day) => !Array.isArray(day.activities) || day.activities.length < 2 || day.activities.length > 4);
+  if (invalidActivityDay) throw generationError(`模型返回的第 ${invalidActivityDay.dayNumber} 天活动数量不是 2–4 项`);
   return plan;
 }
 
@@ -127,6 +129,9 @@ function materializeDay(day, trip, existingDay) {
     ...day,
     id: existingDay?.id || randomUUID(),
     date: existingDay?.date || dateForDay(trip.startDate, day.dayNumber),
+    walkingDistanceKm: Math.max(0, Number(day.walkingDistanceKm) || 0),
+    transitMinutes: Math.max(0, Number.isInteger(day.transitMinutes) ? day.transitMinutes : 0),
+    transportationNotes: cleanList(day.transportationNotes).slice(0, 6),
     activities: day.activities.map((activity) => ({ ...activity, id: randomUUID(), locked: false })),
     locked: false
   };
@@ -258,7 +263,7 @@ export async function generateItinerary(trip) {
   const plan = await deepSeekJson({
     name: "travel_itinerary",
     schema: itinerarySchema,
-    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。budgetSummary 必须给出人均总预算，并分别估算大交通、住宿、餐饮、景点活动和预留金；所有预算均为同一货币的估算区间，不得伪装成实时报价。recommendations 必须给出与路线匹配的住宿区域和交通方式建议；住宿只推荐区域而非虚构酒店库存，价格使用区间；交通不虚构实时班次或票价。输出必须符合指定 JSON Schema，且不添加解释文字。",
+    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。每天估算 walkingDistanceKm 与 transitMinutes，并在 transportationNotes 中写清主要移动方式，但不得虚构实时线路、班次或时刻。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。budgetSummary 必须给出人均总预算，并分别估算大交通、住宿、餐饮、景点活动和预留金；所有预算均为同一货币的估算区间，不得伪装成实时报价。recommendations 必须给出与路线匹配的住宿区域和交通方式建议；住宿只推荐区域而非虚构酒店库存，价格使用区间；交通不虚构实时班次或票价。输出必须符合指定 JSON Schema，且不添加解释文字。",
     input: `请为以下旅行生成行程：\n${JSON.stringify(input)}`
   });
   validatePlan(plan, trip.durationDays);
@@ -327,7 +332,7 @@ export async function reviseItinerary(trip, request) {
   const plan = await deepSeekJson({
     name: "travel_itinerary_revision",
     schema: itineraryRevisionSchema,
-    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。重新汇总 budgetSummary 中的人均总预算及大交通、住宿、餐饮、景点活动、预留金区间，并同步返回与新路线一致的住宿区域和交通建议；不得虚构酒店库存、实时班次或实时报价。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
+    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，并同步更新 walkingDistanceKm、transitMinutes 与 transportationNotes；不编造实时线路、班次、价格、营业时间、天气或签证事实。重新汇总 budgetSummary 中的人均总预算及大交通、住宿、餐饮、景点活动、预留金区间，并同步返回与新路线一致的住宿区域和交通建议；不得虚构酒店库存、实时班次或实时报价。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
     input: JSON.stringify({
       instruction,
       scope,

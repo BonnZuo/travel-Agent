@@ -51,6 +51,8 @@ function tripMarkdown(trip) {
       for (const note of activity.notes || []) lines.push(`  - 提示：${note}`);
     }
     lines.push("", `预计花费：${day.estimatedBudget.currency} ${day.estimatedBudget.min}–${day.estimatedBudget.max} / 人`);
+    lines.push(`步行与通勤：约 ${day.walkingDistanceKm || 0} 公里步行，${day.transitMinutes || 0} 分钟公共交通`);
+    for (const note of day.transportationNotes || []) lines.push(`交通提示：${note}`);
     if (day.tip) lines.push(`\n出行提示：${day.tip}`);
     lines.push("");
   }

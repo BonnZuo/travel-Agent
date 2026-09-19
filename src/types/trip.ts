@@ -135,6 +135,7 @@ export interface ItineraryDay {
   estimatedBudget: MoneyRange;
   walkingDistanceKm?: number;
   transitMinutes?: number;
+  transportationNotes?: string[];
   tip?: string;
   locked: boolean;
 }

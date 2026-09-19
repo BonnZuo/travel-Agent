@@ -138,6 +138,25 @@ test("AI 行前清单保留已完成状态和手动事项", { concurrency: false
   });
 });
 
+test("重规划拒绝每天超过四个主要活动", { concurrency: false }, async () => {
+  const money = { min: 100, max: 200, currency: "CNY" };
+  const activity = (title) => ({ title, category: "attraction", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false });
+  const trip = {
+    id: "trip-dense", version: 1, title: "测试旅行", destinations: ["苏州"], durationDays: 1,
+    travelers: { count: 1, tripType: "solo" }, preferences: { interests: [], pace: "relaxed", avoid: [], constraints: [] },
+    itinerary: [{ id: "day-1", dayNumber: 1, date: "第 1 天", city: "苏州", theme: "慢游", activities: [activity("旧活动一"), activity("旧活动二")], estimatedBudget: money, locked: false }]
+  };
+  const invalidPlan = {
+    title: "过密行程", changeSummary: ["增加活动"],
+    budgetSummary: { totalPerPerson: money, transport: money, accommodation: money, food: money, activities: money, contingency: money },
+    recommendations: { accommodationAreas: [], transportation: [] },
+    itinerary: [{ dayNumber: 1, city: "苏州", theme: "过密", activities: [1, 2, 3, 4, 5].map((number) => activity(`活动${number}`)), estimatedBudget: money, walkingDistanceKm: 12, transitMinutes: 60, transportationNotes: [], tip: "过密" }]
+  };
+  await withMockedDeepSeek(invalidPlan, async () => {
+    await assert.rejects(() => reviseItinerary(trip, { instruction: "多安排一些", scope: "trip" }), /活动数量不是 2–4 项/);
+  });
+});
+
 test("局部重规划只修改指定日期并保留锁定活动", { concurrency: false }, async () => {
   const money = { min: 100, max: 200, currency: "CNY" };
   const activity = (id, title, locked = false) => ({ id, title, category: "attraction", timeSlot: "morning", durationMinutes: 120, reason: "测试", notes: [], reservationRequired: false, locked });
@@ -171,8 +190,8 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
       transportation: [{ segment: "市内移动", mode: "地铁与出租车", recommendation: "根据距离组合使用", notes: ["出发前核对运营时间"] }]
     },
     itinerary: [
-      { dayNumber: 1, city: "吐鲁番", theme: "模型不应改动", activities: [{ title: "错误改动", category: "nature", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }], estimatedBudget: money, tip: "模型改动" },
-      { dayNumber: 2, city: "乌鲁木齐", theme: "轻松漫步", activities: [{ title: "新活动", category: "nature", timeSlot: "afternoon", durationMinutes: 90, reason: "更轻松", notes: [], reservationRequired: false }], estimatedBudget: { min: 80, max: 150, currency: "CNY" }, tip: "放慢节奏" }
+      { dayNumber: 1, city: "吐鲁番", theme: "模型不应改动", activities: [{ title: "错误改动", category: "nature", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }, { title: "错误改动二", category: "nature", timeSlot: "afternoon", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }], estimatedBudget: money, walkingDistanceKm: 4, transitMinutes: 30, transportationNotes: ["公交"], tip: "模型改动" },
+      { dayNumber: 2, city: "乌鲁木齐", theme: "轻松漫步", activities: [{ title: "新活动", category: "nature", timeSlot: "afternoon", durationMinutes: 90, reason: "更轻松", notes: [], reservationRequired: false }, { title: "自由休息", category: "free_time", timeSlot: "evening", durationMinutes: 60, reason: "控制节奏", notes: [], reservationRequired: false }], estimatedBudget: { min: 80, max: 150, currency: "CNY" }, walkingDistanceKm: 2.5, transitMinutes: 20, transportationNotes: ["短途打车与步行"], tip: "放慢节奏" }
     ]
   };
   await withMockedDeepSeek(revisedByModel, async () => {
@@ -188,5 +207,7 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
     assert.equal(result.budgetEstimate.status, "near_limit");
     assert.equal(result.recommendations.accommodationAreas[0].area, "红山周边");
     assert.equal(result.recommendations.transportation[0].mode, "地铁与出租车");
+    assert.equal(result.itinerary[1].walkingDistanceKm, 2.5);
+    assert.deepEqual(result.itinerary[1].transportationNotes, ["短途打车与步行"]);
   });
 });

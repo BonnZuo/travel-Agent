@@ -24,6 +24,8 @@ Trip
    └─ ItineraryDay
       ├─ activities[]    一日中的活动、住宿或交通
       ├─ estimatedBudget 当天预算
+      ├─ walkingDistanceKm / transitMinutes 预计步行与通勤强度
+      ├─ transportationNotes 当日主要交通提示
       └─ locked          是否禁止 AI 在重规划时改变
 ```
 
