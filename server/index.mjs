@@ -58,6 +58,16 @@ function tripMarkdown(trip) {
     for (const item of trip.checklist.items) lines.push(`- [${item.completed ? "x" : " "}] ${item.title}${item.reason ? ` — ${item.reason}` : ""}`);
     lines.push("");
   }
+  if (trip.recommendations?.accommodationAreas?.length) {
+    lines.push("## 住宿区域建议", "");
+    for (const item of trip.recommendations.accommodationAreas) lines.push(`- **${item.city}｜${item.area}**：${item.suitableFor}；建议 ${item.recommendedNights} 晚，${item.nightlyBudget.currency} ${item.nightlyBudget.min}–${item.nightlyBudget.max} / 晚`);
+    lines.push("");
+  }
+  if (trip.recommendations?.transportation?.length) {
+    lines.push("## 交通建议", "");
+    for (const item of trip.recommendations.transportation) lines.push(`- **${item.segment}｜${item.mode}**：${item.recommendation}`);
+    lines.push("");
+  }
   lines.push("---", `导出时间：${new Date().toISOString()}`, "价格、开放时间和交通信息请在出发前通过官方渠道复核。");
   return lines.join("\n");
 }
@@ -73,6 +83,7 @@ function sharedTripView(trip) {
     travelers: { count: trip.travelers.count, tripType: trip.travelers.tripType },
     preferences: { pace: trip.preferences.pace },
     budgetEstimate: trip.budgetEstimate,
+    recommendations: trip.recommendations,
     itinerary: trip.itinerary.map((day) => ({
       ...day,
       locked: undefined,
@@ -233,7 +244,7 @@ const server = createServer(async (request, response) => {
       assertExpectedVersion(existing, revisionRequest.expectedVersion);
       const revised = await reviseItinerary(existing, revisionRequest);
       assertUnchanged(existing.id, existing.version);
-      const { trip, revision } = db.saveTripWithRevision({ ...existing, title: revised.title, itinerary: revised.itinerary, budgetEstimate: revised.budgetEstimate, version: revised.revision.version, status: "ready" }, revised.revision);
+      const { trip, revision } = db.saveTripWithRevision({ ...existing, title: revised.title, itinerary: revised.itinerary, budgetEstimate: revised.budgetEstimate, recommendations: revised.recommendations, version: revised.revision.version, status: "ready" }, revised.revision);
       return send(response, 200, { trip, revision });
     }
     if (request.method === "PATCH" && locksMatch) {

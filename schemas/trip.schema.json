@@ -32,6 +32,7 @@
     },
     "budget": { "$ref": "#/$defs/budget" },
     "budgetEstimate": { "$ref": "#/$defs/budgetEstimate" },
+    "recommendations": { "$ref": "#/$defs/recommendations" },
     "preferences": {
       "type": "object",
       "required": ["interests", "pace", "avoid", "constraints"],
@@ -94,6 +95,40 @@
           "additionalProperties": false
         },
         "status": { "enum": ["unbudgeted", "sufficient", "near_limit", "over_budget"] }
+      },
+      "additionalProperties": false
+    },
+    "recommendations": {
+      "type": "object",
+      "required": ["accommodationAreas", "transportation"],
+      "properties": {
+        "accommodationAreas": { "type": "array", "items": { "$ref": "#/$defs/accommodationArea" } },
+        "transportation": { "type": "array", "items": { "$ref": "#/$defs/transportRecommendation" } }
+      },
+      "additionalProperties": false
+    },
+    "accommodationArea": {
+      "type": "object",
+      "required": ["city", "area", "suitableFor", "advantages", "cautions", "nightlyBudget", "recommendedNights"],
+      "properties": {
+        "city": { "type": "string" },
+        "area": { "type": "string" },
+        "suitableFor": { "type": "string" },
+        "advantages": { "type": "array", "items": { "type": "string" } },
+        "cautions": { "type": "array", "items": { "type": "string" } },
+        "nightlyBudget": { "$ref": "#/$defs/moneyRange" },
+        "recommendedNights": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "transportRecommendation": {
+      "type": "object",
+      "required": ["segment", "mode", "recommendation", "notes"],
+      "properties": {
+        "segment": { "type": "string" },
+        "mode": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false
     },

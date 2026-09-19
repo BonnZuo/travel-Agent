@@ -106,7 +106,7 @@ cp .env.example .env
 npm start
 ```
 
-`POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。模型同时返回人均总预算与大交通、住宿、餐饮、景点活动、预留金五类估算区间。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
+`POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。模型同时返回人均总预算与大交通、住宿、餐饮、景点活动、预留金五类估算区间，以及与路线匹配的住宿区域和交通方式建议。住宿建议不绑定实时库存，交通建议不虚构实时班次与票价。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
 
 DeepSeek 请求默认在 45 秒后超时并返回 `504`，可通过 `DEEPSEEK_TIMEOUT_MS` 在 1000–180000 毫秒范围内调整。服务端根据用户人均预算计算 `budgetEstimate.status`：
 

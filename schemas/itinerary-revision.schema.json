@@ -1,11 +1,12 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "changeSummary", "budgetSummary", "itinerary"],
+  "required": ["title", "changeSummary", "budgetSummary", "recommendations", "itinerary"],
   "properties": {
     "title": { "type": "string" },
     "changeSummary": { "type": "array", "minItems": 1, "maxItems": 6, "items": { "type": "string" } },
     "budgetSummary": { "$ref": "#/$defs/budgetSummary" },
+    "recommendations": { "$ref": "#/$defs/recommendations" },
     "itinerary": { "type": "array", "items": { "$ref": "#/$defs/day" } }
   },
   "$defs": {
@@ -30,6 +31,37 @@
         "food": { "$ref": "#/$defs/moneyRange" },
         "activities": { "$ref": "#/$defs/moneyRange" },
         "contingency": { "$ref": "#/$defs/moneyRange" }
+      }
+    },
+    "accommodationArea": {
+      "type": "object", "additionalProperties": false,
+      "required": ["city", "area", "suitableFor", "advantages", "cautions", "nightlyBudget", "recommendedNights"],
+      "properties": {
+        "city": { "type": "string" },
+        "area": { "type": "string" },
+        "suitableFor": { "type": "string" },
+        "advantages": { "type": "array", "items": { "type": "string" } },
+        "cautions": { "type": "array", "items": { "type": "string" } },
+        "nightlyBudget": { "$ref": "#/$defs/moneyRange" },
+        "recommendedNights": { "type": "integer" }
+      }
+    },
+    "transportAdvice": {
+      "type": "object", "additionalProperties": false,
+      "required": ["segment", "mode", "recommendation", "notes"],
+      "properties": {
+        "segment": { "type": "string" },
+        "mode": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "recommendations": {
+      "type": "object", "additionalProperties": false,
+      "required": ["accommodationAreas", "transportation"],
+      "properties": {
+        "accommodationAreas": { "type": "array", "items": { "$ref": "#/$defs/accommodationArea" } },
+        "transportation": { "type": "array", "items": { "$ref": "#/$defs/transportAdvice" } }
       }
     },
     "activity": {

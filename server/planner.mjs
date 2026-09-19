@@ -182,6 +182,26 @@ function buildBudgetEstimate(plan, trip, itinerary) {
   return { totalPerPerson, categories, status };
 }
 
+function buildRecommendations(value, currency = "CNY") {
+  return {
+    accommodationAreas: (value?.accommodationAreas || []).slice(0, 8).map((item) => ({
+      city: cleanText(item.city),
+      area: cleanText(item.area),
+      suitableFor: cleanText(item.suitableFor),
+      advantages: cleanList(item.advantages).slice(0, 5),
+      cautions: cleanList(item.cautions).slice(0, 5),
+      nightlyBudget: normalizeMoneyRange(item.nightlyBudget, currency),
+      recommendedNights: Math.max(0, Number.isInteger(item.recommendedNights) ? item.recommendedNights : 0)
+    })).filter((item) => item.city && item.area),
+    transportation: (value?.transportation || []).slice(0, 10).map((item) => ({
+      segment: cleanText(item.segment),
+      mode: cleanText(item.mode),
+      recommendation: cleanText(item.recommendation),
+      notes: cleanList(item.notes).slice(0, 5)
+    })).filter((item) => item.segment && item.recommendation)
+  };
+}
+
 async function deepSeekJson({ name, schema, instructions, input }) {
   if (!process.env.DEEPSEEK_API_KEY) throw generationError("未配置 DEEPSEEK_API_KEY，无法调用 AI", 503);
   const configuredTimeout = Number(process.env.DEEPSEEK_TIMEOUT_MS || 45_000);
@@ -238,7 +258,7 @@ export async function generateItinerary(trip) {
   const plan = await deepSeekJson({
     name: "travel_itinerary",
     schema: itinerarySchema,
-    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。budgetSummary 必须给出人均总预算，并分别估算大交通、住宿、餐饮、景点活动和预留金；所有预算均为同一货币的估算区间，不得伪装成实时报价。输出必须符合指定 JSON Schema，且不添加解释文字。",
+    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。budgetSummary 必须给出人均总预算，并分别估算大交通、住宿、餐饮、景点活动和预留金；所有预算均为同一货币的估算区间，不得伪装成实时报价。recommendations 必须给出与路线匹配的住宿区域和交通方式建议；住宿只推荐区域而非虚构酒店库存，价格使用区间；交通不虚构实时班次或票价。输出必须符合指定 JSON Schema，且不添加解释文字。",
     input: `请为以下旅行生成行程：\n${JSON.stringify(input)}`
   });
   validatePlan(plan, trip.durationDays);
@@ -246,7 +266,8 @@ export async function generateItinerary(trip) {
   return {
     title: plan.title,
     itinerary,
-    budgetEstimate: buildBudgetEstimate(plan, trip, itinerary)
+    budgetEstimate: buildBudgetEstimate(plan, trip, itinerary),
+    recommendations: buildRecommendations(plan.recommendations, trip.budget?.currency || "CNY")
   };
 }
 
@@ -306,7 +327,7 @@ export async function reviseItinerary(trip, request) {
   const plan = await deepSeekJson({
     name: "travel_itinerary_revision",
     schema: itineraryRevisionSchema,
-    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。重新汇总 budgetSummary 中的人均总预算及大交通、住宿、餐饮、景点活动、预留金区间。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
+    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。重新汇总 budgetSummary 中的人均总预算及大交通、住宿、餐饮、景点活动、预留金区间，并同步返回与新路线一致的住宿区域和交通建议；不得虚构酒店库存、实时班次或实时报价。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
     input: JSON.stringify({
       instruction,
       scope,
@@ -319,6 +340,7 @@ export async function reviseItinerary(trip, request) {
         budget: trip.budget,
         preferences: trip.preferences,
         budgetEstimate: trip.budgetEstimate,
+        recommendations: trip.recommendations,
         itinerary: trip.itinerary
       }
     })
@@ -341,6 +363,7 @@ export async function reviseItinerary(trip, request) {
     title: plan.title || trip.title,
     itinerary,
     budgetEstimate,
+    recommendations: buildRecommendations(plan.recommendations, trip.budget?.currency || "CNY"),
     revision: {
       id: randomUUID(),
       tripId: trip.id,

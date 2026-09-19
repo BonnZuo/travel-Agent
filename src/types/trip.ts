@@ -69,6 +69,28 @@ export interface BudgetEstimate {
   status: "unbudgeted" | "sufficient" | "near_limit" | "over_budget";
 }
 
+export interface AccommodationAreaRecommendation {
+  city: string;
+  area: string;
+  suitableFor: string;
+  advantages: string[];
+  cautions: string[];
+  nightlyBudget: MoneyRange;
+  recommendedNights: number;
+}
+
+export interface TransportRecommendation {
+  segment: string;
+  mode: string;
+  recommendation: string;
+  notes: string[];
+}
+
+export interface TripRecommendations {
+  accommodationAreas: AccommodationAreaRecommendation[];
+  transportation: TransportRecommendation[];
+}
+
 export interface TripPreferences {
   interests: string[];
   pace: Pace;
@@ -176,6 +198,7 @@ export interface Trip {
   travelers: TravelerProfile;
   budget?: Budget;
   budgetEstimate?: BudgetEstimate;
+  recommendations?: TripRecommendations;
   preferences: TripPreferences;
   itinerary: ItineraryDay[];
   album?: TravelAlbum;

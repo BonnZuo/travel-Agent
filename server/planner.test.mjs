@@ -166,6 +166,10 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
       activities: { min: 50, max: 80, currency: "CNY" },
       contingency: { min: 100, max: 120, currency: "CNY" }
     },
+    recommendations: {
+      accommodationAreas: [{ city: "乌鲁木齐", area: "红山周边", suitableFor: "希望交通便利的旅行者", advantages: ["靠近公共交通"], cautions: ["价格为估算"], nightlyBudget: { min: 300, max: 500, currency: "CNY" }, recommendedNights: 2 }],
+      transportation: [{ segment: "市内移动", mode: "地铁与出租车", recommendation: "根据距离组合使用", notes: ["出发前核对运营时间"] }]
+    },
     itinerary: [
       { dayNumber: 1, city: "吐鲁番", theme: "模型不应改动", activities: [{ title: "错误改动", category: "nature", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }], estimatedBudget: money, tip: "模型改动" },
       { dayNumber: 2, city: "乌鲁木齐", theme: "轻松漫步", activities: [{ title: "新活动", category: "nature", timeSlot: "afternoon", durationMinutes: 90, reason: "更轻松", notes: [], reservationRequired: false }], estimatedBudget: { min: 80, max: 150, currency: "CNY" }, tip: "放慢节奏" }
@@ -182,5 +186,7 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
     assert.equal(result.revision.version, 3);
     assert.equal(result.budgetEstimate.totalPerPerson.max, 900);
     assert.equal(result.budgetEstimate.status, "near_limit");
+    assert.equal(result.recommendations.accommodationAreas[0].area, "红山周边");
+    assert.equal(result.recommendations.transportation[0].mode, "地铁与出租车");
   });
 });

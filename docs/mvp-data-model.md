@@ -19,6 +19,7 @@ Trip
 ├─ travelTiming          模糊旅行时间描述（如“十月”“国庆”）
 ├─ album                 本次旅行的图片记录与封面
 ├─ checklist             AI 与用户共同维护的行前准备清单
+├─ recommendations       住宿区域与交通方式建议
 └─ itinerary[]
    └─ ItineraryDay
       ├─ activities[]    一日中的活动、住宿或交通
@@ -64,6 +65,12 @@ Trip
 - `TravelChecklist` 与旅行一对一关联，包含 AI 生成和用户手动添加的事项。
 - `ChecklistItem.completed` 独立持久化；重新生成清单时按标题保留已有完成状态，并保留未重复的手动事项。
 - 证件、签证、保险和健康要求只作为“核对事项”展示，不把模型知识表述为实时政策结论。
+
+### 住宿与交通建议
+
+- `recommendations.accommodationAreas` 保存城市、推荐区域、适合人群、优缺点、建议晚数与每晚预算区间，不绑定具体酒店库存。
+- `recommendations.transportation` 保存出发地到目的地、跨城与市内移动等分段建议，不虚构实时班次或票价。
+- 首次生成和每次 AI 重规划都同步刷新建议，使住宿晚数、移动方式和新路线保持一致。
 
 ## AI 输出规则
 
