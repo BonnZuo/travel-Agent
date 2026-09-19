@@ -97,7 +97,14 @@ cp .env.example .env
 npm start
 ```
 
-`POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
+`POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。模型同时返回人均总预算与大交通、住宿、餐饮、景点活动、预留金五类估算区间。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
+
+服务端根据用户人均预算计算 `budgetEstimate.status`：
+
+- `sufficient`：估算上限低于预算的 85%。
+- `near_limit`：估算上限达到预算的 85%，但未超过预算。
+- `over_budget`：估算上限超过用户预算。
+- `unbudgeted`：用户未设置预算。
 
 ## 局部重规划与锁定
 

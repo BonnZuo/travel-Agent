@@ -136,7 +136,7 @@ const server = createServer(async (request, response) => {
       const existing = db.find(revisionsMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
       const revised = await reviseItinerary(existing, await readJson(request));
-      const trip = db.save({ ...existing, title: revised.title, itinerary: revised.itinerary, version: revised.revision.version, status: "ready" });
+      const trip = db.save({ ...existing, title: revised.title, itinerary: revised.itinerary, budgetEstimate: revised.budgetEstimate, version: revised.revision.version, status: "ready" });
       const revision = db.saveRevision(revised.revision);
       return send(response, 200, { trip, revision });
     }

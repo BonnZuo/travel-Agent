@@ -1,10 +1,11 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "changeSummary", "itinerary"],
+  "required": ["title", "changeSummary", "budgetSummary", "itinerary"],
   "properties": {
     "title": { "type": "string" },
     "changeSummary": { "type": "array", "minItems": 1, "maxItems": 6, "items": { "type": "string" } },
+    "budgetSummary": { "$ref": "#/$defs/budgetSummary" },
     "itinerary": { "type": "array", "items": { "$ref": "#/$defs/day" } }
   },
   "$defs": {
@@ -16,6 +17,19 @@
         "min": { "type": "number" },
         "max": { "type": "number" },
         "currency": { "type": "string", "enum": ["CNY", "JPY", "USD", "EUR", "GBP"] }
+      }
+    },
+    "budgetSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalPerPerson", "transport", "accommodation", "food", "activities", "contingency"],
+      "properties": {
+        "totalPerPerson": { "$ref": "#/$defs/moneyRange" },
+        "transport": { "$ref": "#/$defs/moneyRange" },
+        "accommodation": { "$ref": "#/$defs/moneyRange" },
+        "food": { "$ref": "#/$defs/moneyRange" },
+        "activities": { "$ref": "#/$defs/moneyRange" },
+        "contingency": { "$ref": "#/$defs/moneyRange" }
       }
     },
     "activity": {

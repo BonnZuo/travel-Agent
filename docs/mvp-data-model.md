@@ -31,6 +31,8 @@ Trip
 
 `MoneyRange` 统一使用 `min`、`max` 与 `currency`。旅行价格变化快，避免把预估费用错误表达为精确报价。
 
+`budget` 保存用户的人均预算目标；`budgetEstimate` 保存 AI 生成的人均总预算区间、五类费用拆分与预算状态。二者分开存储，避免把用户约束误写成系统估算。
+
 ### 锁定粒度
 
 - `ItineraryDay.locked`：锁定整个日期。

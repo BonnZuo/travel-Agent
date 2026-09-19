@@ -151,6 +151,36 @@ function preserveLockedActivities(existingDay, generatedDay) {
   return { ...generatedDay, activities };
 }
 
+function normalizeMoneyRange(value, currency = "CNY") {
+  const min = Math.max(0, Number(value?.min) || 0);
+  const max = Math.max(min, Number(value?.max) || min);
+  return { min, max, currency: value?.currency || currency };
+}
+
+function buildBudgetEstimate(plan, trip, itinerary) {
+  const fallbackCurrency = trip.budget?.currency || itinerary[0]?.estimatedBudget?.currency || "CNY";
+  const fallbackTotal = itinerary.reduce((total, day) => ({ min: total.min + Number(day.estimatedBudget?.min || 0), max: total.max + Number(day.estimatedBudget?.max || 0) }), { min: 0, max: 0 });
+  const summary = plan.budgetSummary || {};
+  const totalPerPerson = summary.totalPerPerson
+    ? normalizeMoneyRange(summary.totalPerPerson, fallbackCurrency)
+    : { ...fallbackTotal, currency: fallbackCurrency };
+  const emptyRange = { min: 0, max: 0, currency: totalPerPerson.currency };
+  const categories = {
+    transport: summary.transport ? normalizeMoneyRange(summary.transport, totalPerPerson.currency) : emptyRange,
+    accommodation: summary.accommodation ? normalizeMoneyRange(summary.accommodation, totalPerPerson.currency) : emptyRange,
+    food: summary.food ? normalizeMoneyRange(summary.food, totalPerPerson.currency) : emptyRange,
+    activities: summary.activities ? normalizeMoneyRange(summary.activities, totalPerPerson.currency) : emptyRange,
+    contingency: summary.contingency ? normalizeMoneyRange(summary.contingency, totalPerPerson.currency) : emptyRange
+  };
+  let status = "unbudgeted";
+  if (trip.budget?.perPerson > 0) {
+    if (totalPerPerson.max > trip.budget.perPerson) status = "over_budget";
+    else if (totalPerPerson.max >= trip.budget.perPerson * 0.85) status = "near_limit";
+    else status = "sufficient";
+  }
+  return { totalPerPerson, categories, status };
+}
+
 async function deepSeekJson({ name, schema, instructions, input }) {
   if (!process.env.DEEPSEEK_API_KEY) throw generationError("未配置 DEEPSEEK_API_KEY，无法调用 AI", 503);
   let apiResponse;
@@ -196,13 +226,15 @@ export async function generateItinerary(trip) {
   const plan = await deepSeekJson({
     name: "travel_itinerary",
     schema: itinerarySchema,
-    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。所有预算均为估算区间。输出必须符合指定 JSON Schema，且不添加解释文字。",
+    instructions: "你是旅行规划助手。originalPrompt 是用户需求的最高优先级来源。仅根据用户提供的约束生成一份可执行、节奏合理的旅行计划。每天按地理邻近性安排 2 到 4 个主要活动；城市间移动日降低活动强度；保留用户限制条件。不要编造实时价格、营业时间、签证或天气事实；在不确定时用通用提醒写入 notes 或 tip。budgetSummary 必须给出人均总预算，并分别估算大交通、住宿、餐饮、景点活动和预留金；所有预算均为同一货币的估算区间，不得伪装成实时报价。输出必须符合指定 JSON Schema，且不添加解释文字。",
     input: `请为以下旅行生成行程：\n${JSON.stringify(input)}`
   });
   validatePlan(plan, trip.durationDays);
+  const itinerary = plan.itinerary.map((day) => materializeDay(day, trip));
   return {
     title: plan.title,
-    itinerary: plan.itinerary.map((day) => materializeDay(day, trip))
+    itinerary,
+    budgetEstimate: buildBudgetEstimate(plan, trip, itinerary)
   };
 }
 
@@ -224,7 +256,7 @@ export async function reviseItinerary(trip, request) {
   const plan = await deepSeekJson({
     name: "travel_itinerary_revision",
     schema: itineraryRevisionSchema,
-    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
+    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。重新汇总 budgetSummary 中的人均总预算及大交通、住宿、餐饮、景点活动、预留金区间。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
     input: JSON.stringify({
       instruction,
       scope,
@@ -236,6 +268,7 @@ export async function reviseItinerary(trip, request) {
         travelers: trip.travelers,
         budget: trip.budget,
         preferences: trip.preferences,
+        budgetEstimate: trip.budgetEstimate,
         itinerary: trip.itinerary
       }
     })
@@ -251,11 +284,13 @@ export async function reviseItinerary(trip, request) {
   const affectedDayNumbers = itinerary
     .filter((day, index) => contentSignature(day) !== contentSignature(trip.itinerary[index]))
     .map((day) => day.dayNumber);
-  const previousBudget = trip.itinerary.reduce((sum, day) => sum + Number(day.estimatedBudget?.max || 0), 0);
-  const revisedBudget = itinerary.reduce((sum, day) => sum + Number(day.estimatedBudget?.max || 0), 0);
+  const budgetEstimate = buildBudgetEstimate(plan, trip, itinerary);
+  const previousBudget = Number(trip.budgetEstimate?.totalPerPerson?.max || trip.itinerary.reduce((sum, day) => sum + Number(day.estimatedBudget?.max || 0), 0));
+  const revisedBudget = budgetEstimate.totalPerPerson.max;
   return {
     title: plan.title || trip.title,
     itinerary,
+    budgetEstimate,
     revision: {
       id: randomUUID(),
       tripId: trip.id,

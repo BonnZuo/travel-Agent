@@ -31,6 +31,7 @@
       "additionalProperties": false
     },
     "budget": { "$ref": "#/$defs/budget" },
+    "budgetEstimate": { "$ref": "#/$defs/budgetEstimate" },
     "preferences": {
       "type": "object",
       "required": ["interests", "pace", "avoid", "constraints"],
@@ -71,6 +72,27 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/moneyRange" }
         }
+      },
+      "additionalProperties": false
+    },
+    "budgetEstimate": {
+      "type": "object",
+      "required": ["totalPerPerson", "categories", "status"],
+      "properties": {
+        "totalPerPerson": { "$ref": "#/$defs/moneyRange" },
+        "categories": {
+          "type": "object",
+          "required": ["transport", "accommodation", "food", "activities", "contingency"],
+          "properties": {
+            "transport": { "$ref": "#/$defs/moneyRange" },
+            "accommodation": { "$ref": "#/$defs/moneyRange" },
+            "food": { "$ref": "#/$defs/moneyRange" },
+            "activities": { "$ref": "#/$defs/moneyRange" },
+            "contingency": { "$ref": "#/$defs/moneyRange" }
+          },
+          "additionalProperties": false
+        },
+        "status": { "enum": ["unbudgeted", "sufficient", "near_limit", "over_budget"] }
       },
       "additionalProperties": false
     },

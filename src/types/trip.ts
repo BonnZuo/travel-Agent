@@ -56,6 +56,18 @@ export interface Budget {
   };
 }
 
+export interface BudgetEstimate {
+  totalPerPerson: MoneyRange;
+  categories: {
+    transport: MoneyRange;
+    accommodation: MoneyRange;
+    food: MoneyRange;
+    activities: MoneyRange;
+    contingency: MoneyRange;
+  };
+  status: "unbudgeted" | "sufficient" | "near_limit" | "over_budget";
+}
+
 export interface TripPreferences {
   interests: string[];
   pace: Pace;
@@ -145,6 +157,7 @@ export interface Trip {
   durationDays: number;
   travelers: TravelerProfile;
   budget?: Budget;
+  budgetEstimate?: BudgetEstimate;
   preferences: TripPreferences;
   itinerary: ItineraryDay[];
   album?: TravelAlbum;

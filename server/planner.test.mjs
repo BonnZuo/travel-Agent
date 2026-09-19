@@ -89,6 +89,7 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
     destinations: ["新疆"],
     durationDays: 2,
     travelers: { count: 2, tripType: "friends" },
+    budget: { perPerson: 1000, currency: "CNY", categories: {} },
     preferences: { interests: [], pace: "balanced", avoid: [], constraints: [] },
     itinerary: [
       { id: "day-1", dayNumber: 1, date: "第 1 天", city: "乌鲁木齐", theme: "旧主题一", activities: [activity("a-1", "旧活动一")], estimatedBudget: money, tip: "旧提示", locked: false },
@@ -98,6 +99,14 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
   const revisedByModel = {
     title: "新疆轻松之旅",
     changeSummary: ["第二天减少活动"],
+    budgetSummary: {
+      totalPerPerson: { min: 700, max: 900, currency: "CNY" },
+      transport: { min: 250, max: 300, currency: "CNY" },
+      accommodation: { min: 180, max: 240, currency: "CNY" },
+      food: { min: 120, max: 160, currency: "CNY" },
+      activities: { min: 50, max: 80, currency: "CNY" },
+      contingency: { min: 100, max: 120, currency: "CNY" }
+    },
     itinerary: [
       { dayNumber: 1, city: "吐鲁番", theme: "模型不应改动", activities: [{ title: "错误改动", category: "nature", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }], estimatedBudget: money, tip: "模型改动" },
       { dayNumber: 2, city: "乌鲁木齐", theme: "轻松漫步", activities: [{ title: "新活动", category: "nature", timeSlot: "afternoon", durationMinutes: 90, reason: "更轻松", notes: [], reservationRequired: false }], estimatedBudget: { min: 80, max: 150, currency: "CNY" }, tip: "放慢节奏" }
@@ -112,5 +121,7 @@ test("局部重规划只修改指定日期并保留锁定活动", { concurrency:
     assert.deepEqual(result.revision.affectedDayNumbers, [2]);
     assert.equal(result.revision.previousVersion, 2);
     assert.equal(result.revision.version, 3);
+    assert.equal(result.budgetEstimate.totalPerPerson.max, 900);
+    assert.equal(result.budgetEstimate.status, "near_limit");
   });
 });
