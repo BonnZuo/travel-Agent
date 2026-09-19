@@ -110,4 +110,35 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
     body: JSON.stringify({ expectedVersion: completedItem.trip.version })
   });
   assert.deepEqual(removedItem.checklist.items, []);
+
+  const readyTrip = await jsonRequest(`${baseUrl}/api/trips/${trip.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "ready",
+      expectedVersion: removedItem.trip.version,
+      itinerary: [{
+        id: "day-1", dayNumber: 1, date: "第 1 天", city: "杭州", theme: "西湖漫步", locked: false,
+        activities: [{ id: "activity-1", title: "游览西湖", category: "nature", timeSlot: "morning", durationMinutes: 120, reason: "欣赏湖景", notes: [], reservationRequired: false, locked: false }],
+        estimatedBudget: { min: 50, max: 100, currency: "CNY" }, tip: "穿舒适的鞋"
+      }]
+    })
+  });
+  const shared = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/share`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion: readyTrip.trip.version })
+  });
+  assert.ok(shared.share.token);
+  const publicTrip = await jsonRequest(`${baseUrl}/api/shared/${shared.share.token}`);
+  assert.equal(publicTrip.trip.title, "杭州慢游");
+  assert.equal(publicTrip.trip.id, undefined);
+  assert.equal(publicTrip.trip.originalPrompt, undefined);
+  assert.equal(publicTrip.trip.album, undefined);
+  assert.equal(publicTrip.trip.checklist, undefined);
+  assert.deepEqual(publicTrip.trip.preferences, { pace: "balanced" });
+  const revoked = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/share`, {
+    method: "DELETE",
+    body: JSON.stringify({ expectedVersion: readyTrip.trip.version })
+  });
+  assert.equal(revoked.revoked, true);
+  assert.equal((await fetch(`${baseUrl}/api/shared/${shared.share.token}`)).status, 404);
 });

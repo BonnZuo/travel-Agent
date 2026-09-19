@@ -49,6 +49,12 @@ export function openDatabase(filePath) {
       FOREIGN KEY(trip_id) REFERENCES trips(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_trip_revisions_trip_id ON trip_revisions(trip_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS trip_shares (
+      token TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(trip_id) REFERENCES trips(id) ON DELETE CASCADE
+    );
   `);
   try {
     db.exec("ALTER TABLE trips ADD COLUMN travel_timing TEXT");
@@ -112,6 +118,7 @@ export function openDatabase(filePath) {
       budget_delta, previous_version, version, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const writeShare = db.prepare(`INSERT INTO trip_shares (token, trip_id, created_at) VALUES (?, ?, ?) ON CONFLICT(trip_id) DO UPDATE SET token = excluded.token, created_at = excluded.created_at`);
 
   const toRevision = (row) => row && ({
     id: row.id,
@@ -176,6 +183,20 @@ export function openDatabase(filePath) {
     saveTripWithRevision,
     listRevisions(tripId) {
       return db.prepare("SELECT * FROM trip_revisions WHERE trip_id = ? ORDER BY created_at DESC").all(tripId).map(toRevision);
+    },
+    findShareByTrip(tripId) {
+      return db.prepare("SELECT token, trip_id AS tripId, created_at AS createdAt FROM trip_shares WHERE trip_id = ?").get(tripId);
+    },
+    findShare(token) {
+      return db.prepare("SELECT token, trip_id AS tripId, created_at AS createdAt FROM trip_shares WHERE token = ?").get(token);
+    },
+    saveShare(token, tripId) {
+      const createdAt = now();
+      writeShare.run(token, tripId, createdAt);
+      return { token, tripId, createdAt };
+    },
+    deleteShare(tripId) {
+      return db.prepare("DELETE FROM trip_shares WHERE trip_id = ?").run(tripId).changes > 0;
     },
     close() { db.close(); }
   };

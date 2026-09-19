@@ -29,6 +29,9 @@ npm start
 | `POST` | `/api/trips/:tripId/checklist` | 手动添加准备事项 |
 | `PATCH` | `/api/trips/:tripId/checklist/:itemId` | 修改事项或完成状态 |
 | `DELETE` | `/api/trips/:tripId/checklist/:itemId` | 删除准备事项 |
+| `POST` | `/api/trips/:tripId/share` | 创建只读分享令牌 |
+| `DELETE` | `/api/trips/:tripId/share` | 撤销当前分享令牌 |
+| `GET` | `/api/shared/:token` | 获取脱敏后的只读行程 |
 
 ## 创建旅行
 
@@ -143,7 +146,9 @@ curl -X POST http://localhost:3000/api/trips/TRIP_ID/revisions \
 
 ## 分享与导出
 
-行程页的“分享”按钮会复制形如 `/?trip=TRIP_ID` 的链接。访问该链接时，前端从当前服务实例的数据库读取行程并直接打开详情。因此，本地链接只对能访问同一服务与数据库的人有效；现阶段尚未加入公开分享令牌、账号权限或隐私脱敏。
+行程页的“分享”按钮调用 `POST /api/trips/:tripId/share` 创建不可猜测的分享令牌，并复制形如 `/?share=TOKEN` 的链接。访问该链接时，前端只调用 `GET /api/shared/:token`，隐藏编辑、锁定、修改历史等操作。公开响应不包含原始对话、个人偏好与限制、预算目标、相册和行前清单，仅保留展示行程所需的信息。可用 `DELETE /api/trips/:tripId/share` 立即撤销链接。
+
+相同旅行重复分享默认复用现有令牌；传入 `rotate: true` 可以使旧链接失效并创建新令牌。分享链接仍依赖当前服务实例及其数据库可被访问。
 
 `GET /api/trips/:tripId/export` 会下载 UTF-8 Markdown 文档，包含旅行概览、预算、逐日活动与出行提示：
 

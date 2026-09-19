@@ -62,6 +62,26 @@ function tripMarkdown(trip) {
   return lines.join("\n");
 }
 
+function sharedTripView(trip) {
+  return {
+    title: trip.title,
+    destinations: trip.destinations,
+    travelTiming: trip.travelTiming,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+    durationDays: trip.durationDays,
+    travelers: { count: trip.travelers.count, tripType: trip.travelers.tripType },
+    preferences: { pace: trip.preferences.pace },
+    budgetEstimate: trip.budgetEstimate,
+    itinerary: trip.itinerary.map((day) => ({
+      ...day,
+      locked: undefined,
+      activities: day.activities.map(({ locked, ...activity }) => activity)
+    })),
+    updatedAt: trip.updatedAt
+  };
+}
+
 async function readJson(request, maxBytes = 1_000_000) {
   let body = "";
   for await (const chunk of request) {
@@ -167,6 +187,14 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok", aiConfigured: Boolean(process.env.DEEPSEEK_API_KEY) });
     if (request.method === "GET" && path.startsWith("/uploads/")) return serveUpload(path, response);
     if (request.method === "GET" && path === "/api/trips") return send(response, 200, { trips: db.list() });
+    const sharedMatch = path.match(/^\/api\/shared\/([\w-]+)$/);
+    if (request.method === "GET" && sharedMatch) {
+      const share = db.findShare(sharedMatch[1]);
+      if (!share) return send(response, 404, { error: "Shared trip not found" });
+      const trip = db.find(share.tripId);
+      if (!trip || !trip.itinerary?.length) return send(response, 404, { error: "Shared trip not found" });
+      return send(response, 200, { trip: sharedTripView(trip), sharedAt: share.createdAt });
+    }
     if (request.method === "POST" && path === "/api/trips/parse") {
       const { prompt, currentIntent } = await readJson(request);
       const assessment = await extractTripIntent(prompt, currentIntent);
@@ -182,6 +210,7 @@ const server = createServer(async (request, response) => {
     const checklistMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist$/);
     const checklistGenerateMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist\/generate$/);
     const checklistItemMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist\/([\w-]+)$/);
+    const shareMatch = path.match(/^\/api\/trips\/([\w-]+)\/share$/);
     if (request.method === "POST" && generateMatch) {
       const { expectedVersion } = await readJson(request);
       const existing = db.find(generateMatch[1]);
@@ -331,6 +360,23 @@ const server = createServer(async (request, response) => {
       const checklist = { ...existing.checklist, items: existing.checklist.items.filter((item) => item.id !== checklistItemMatch[2]), updatedAt: new Date().toISOString() };
       const trip = db.save({ ...existing, checklist, version: existing.version + 1 });
       return send(response, 200, { trip, checklist });
+    }
+    if (request.method === "POST" && shareMatch) {
+      const { expectedVersion, rotate = false } = await readJson(request);
+      const existing = db.find(shareMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      if (!existing.itinerary?.length) throw badRequest("generate an itinerary before sharing");
+      const current = db.findShareByTrip(existing.id);
+      const share = current && !rotate ? current : db.saveShare(randomUUID(), existing.id);
+      return send(response, 200, { share });
+    }
+    if (request.method === "DELETE" && shareMatch) {
+      const { expectedVersion } = await readJson(request);
+      const existing = db.find(shareMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      return send(response, 200, { revoked: db.deleteShare(existing.id) });
     }
     if (request.method === "GET" && exportMatch) {
       const existing = db.find(exportMatch[1]);
