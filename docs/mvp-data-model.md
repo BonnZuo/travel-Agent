@@ -54,6 +54,7 @@ Trip
 - 图片可关联 `dayNumber`、拍摄时间 `takenAt` 与 `place`，后续可以在每日行程中回看照片。
 - `uploadStatus` 覆盖选择图片、上传中、成功和失败，前端据此展示上传进度及重试操作。
 - `coverPhotoId` 仅保存照片 ID，而非复制图片地址；删除封面时由服务端推荐下一张已就绪照片或置空。
+- 当前 MVP 将图片文件保存在本机 `data/uploads/`；正式部署时可保持数据契约不变，将文件层替换为对象存储。
 
 ## AI 输出规则
 
@@ -108,16 +109,14 @@ Trip
 
 ### 添加旅行照片
 
-图片文件先通过上传接口写入对象存储，完成后再创建或更新照片元数据。`url` 应使用由服务端生成的受控访问地址。
+图片文件通过上传接口写入当前配置的文件目录，完成后再创建或更新照片元数据。`url` 使用由服务端生成的受控访问地址。
 
 `POST /api/trips/:tripId/photos`
 
 ```json
 {
-  "url": "https://cdn.example.com/trips/trip_001/photo_001.jpg",
-  "thumbnailUrl": "https://cdn.example.com/trips/trip_001/photo_001-thumb.jpg",
+  "dataUrl": "data:image/jpeg;base64,...",
   "caption": "傍晚的浅草寺",
-  "dayNumber": 2,
-  "uploadStatus": "ready"
+  "dayNumber": 2
 }
 ```

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -11,23 +11,34 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const databasePath = process.env.DATABASE_PATH
   ? (isAbsolute(process.env.DATABASE_PATH) ? process.env.DATABASE_PATH : resolve(root, process.env.DATABASE_PATH))
   : join(root, "data", "travel-agent.db");
+const uploadsRoot = process.env.UPLOADS_PATH
+  ? (isAbsolute(process.env.UPLOADS_PATH) ? process.env.UPLOADS_PATH : resolve(root, process.env.UPLOADS_PATH))
+  : join(root, "data", "uploads");
 const db = openDatabase(databasePath);
 const port = Number(process.env.PORT ?? 3000);
-const MIME_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
+const MIME_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml" };
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
   response.end(JSON.stringify(body));
 }
 
-async function readJson(request) {
+async function readJson(request, maxBytes = 1_000_000) {
   let body = "";
   for await (const chunk of request) {
     body += chunk;
-    if (body.length > 1_000_000) throw new Error("Request body exceeds 1 MB");
+    if (body.length > maxBytes) throw badRequest(`Request body exceeds ${Math.round(maxBytes / 1_000_000)} MB`);
   }
   if (!body) return {};
-  try { return JSON.parse(body); } catch { throw new Error("Request body must be valid JSON"); }
+  try { return JSON.parse(body); } catch { throw badRequest("Request body must be valid JSON"); }
+}
+
+async function serveUpload(path, response) {
+  const safePath = normalize(path.replace(/^\/uploads\//, "")).replace(/^([/\\])+/, "");
+  const target = join(uploadsRoot, safePath);
+  if (!target.startsWith(`${uploadsRoot}/`) || !existsSync(target) || !(await stat(target)).isFile()) return send(response, 404, { error: "Photo not found" });
+  response.writeHead(200, { "content-type": MIME_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream", "cache-control": "public, max-age=86400" });
+  response.end(await readFile(target));
 }
 
 function badRequest(message) {
@@ -91,11 +102,12 @@ async function serveStatic(request, response) {
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") {
-      response.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,PATCH,OPTIONS", "access-control-allow-headers": "content-type" });
+      response.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS", "access-control-allow-headers": "content-type" });
       return response.end();
     }
     const path = new URL(request.url, `http://${request.headers.host}`).pathname;
     if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok" });
+    if (request.method === "GET" && path.startsWith("/uploads/")) return serveUpload(path, response);
     if (request.method === "GET" && path === "/api/trips") return send(response, 200, { trips: db.list() });
     if (request.method === "POST" && path === "/api/trips/parse") {
       const { prompt, currentIntent } = await readJson(request);
@@ -106,6 +118,8 @@ const server = createServer(async (request, response) => {
     const generateMatch = path.match(/^\/api\/trips\/([\w-]+)\/generate$/);
     const revisionsMatch = path.match(/^\/api\/trips\/([\w-]+)\/revisions$/);
     const locksMatch = path.match(/^\/api\/trips\/([\w-]+)\/locks$/);
+    const photosMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos$/);
+    const photoMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos\/([\w-]+)$/);
     if (request.method === "POST" && generateMatch) {
       const existing = db.find(generateMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
@@ -146,6 +160,45 @@ const server = createServer(async (request, response) => {
       const trip = db.save({ ...existing, itinerary, version: existing.version + 1 });
       return send(response, 200, { trip });
     }
+    if (request.method === "GET" && photosMatch) {
+      const existing = db.find(photosMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      return send(response, 200, { album: existing.album || null });
+    }
+    if (request.method === "POST" && photosMatch) {
+      const existing = db.find(photosMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      const { dataUrl, caption, dayNumber } = await readJson(request, 12_000_000);
+      const image = typeof dataUrl === "string" && dataUrl.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+      if (!image) throw badRequest("photo must be a JPEG, PNG, or WebP data URL");
+      const buffer = Buffer.from(image[2], "base64");
+      if (!buffer.length || buffer.length > 8_000_000) throw badRequest("photo must be between 1 byte and 8 MB");
+      if (dayNumber !== undefined && (!Number.isInteger(dayNumber) || dayNumber < 1 || dayNumber > existing.durationDays)) throw badRequest("dayNumber is outside this trip");
+      const extension = image[1] === "jpeg" ? "jpg" : image[1];
+      const photoId = randomUUID();
+      const fileName = `${photoId}.${extension}`;
+      const directory = join(uploadsRoot, existing.id);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, fileName), buffer, { flag: "wx" });
+      const createdAt = new Date().toISOString();
+      const photo = { id: photoId, tripId: existing.id, url: `/uploads/${existing.id}/${fileName}`, thumbnailUrl: `/uploads/${existing.id}/${fileName}`, caption: typeof caption === "string" ? caption.trim().slice(0, 280) : undefined, dayNumber, uploadStatus: "ready", createdAt };
+      const album = existing.album || { id: randomUUID(), tripId: existing.id, title: `${existing.title}相册`, photos: [], createdAt, updatedAt: createdAt };
+      const updatedAlbum = { ...album, coverPhotoId: album.coverPhotoId || photo.id, photos: [...album.photos, photo], updatedAt: createdAt };
+      const trip = db.save({ ...existing, album: updatedAlbum, version: existing.version + 1 });
+      return send(response, 201, { trip, photo });
+    }
+    if (request.method === "DELETE" && photoMatch) {
+      const existing = db.find(photoMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      const photo = existing.album?.photos.find((item) => item.id === photoMatch[2]);
+      if (!photo) return send(response, 404, { error: "Photo not found" });
+      const target = join(uploadsRoot, photo.url.replace(/^\/uploads\//, ""));
+      if (target.startsWith(`${uploadsRoot}/`)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") throw error; });
+      const photos = existing.album.photos.filter((item) => item.id !== photo.id);
+      const album = { ...existing.album, photos, coverPhotoId: existing.album.coverPhotoId === photo.id ? photos[0]?.id : existing.album.coverPhotoId, updatedAt: new Date().toISOString() };
+      const trip = db.save({ ...existing, album, version: existing.version + 1 });
+      return send(response, 200, { trip, album });
+    }
     if (request.method === "GET" && match) {
       const trip = db.find(match[1]);
       return trip ? send(response, 200, { trip }) : send(response, 404, { error: "Trip not found" });
@@ -167,5 +220,5 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => console.log(`Travel Agent is running at http://localhost:${port}`));
+server.listen(port, () => console.log(`Travel Agent is running at http://localhost:${server.address().port}`));
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { db.close(); server.close(() => process.exit(0)); });

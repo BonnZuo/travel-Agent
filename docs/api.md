@@ -20,6 +20,9 @@ npm start
 | `GET` | `/api/trips/:tripId/revisions` | 获取行程修改历史 |
 | `POST` | `/api/trips/:tripId/revisions` | AI 局部或整段重规划 |
 | `PATCH` | `/api/trips/:tripId/locks` | 锁定或解锁日期、活动 |
+| `GET` | `/api/trips/:tripId/photos` | 获取旅行相册 |
+| `POST` | `/api/trips/:tripId/photos` | 上传旅行照片 |
+| `DELETE` | `/api/trips/:tripId/photos/:photoId` | 删除旅行照片 |
 
 ## 创建旅行
 
@@ -124,3 +127,19 @@ curl -X POST http://localhost:3000/api/trips/TRIP_ID/revisions \
 `scope: "days"` 只允许修改指定日期；`scope: "trip"` 可调整整个行程。响应包含保存后的 `trip`，以及受影响日期、修改摘要、预算变化和版本号组成的 `revision`。
 
 测试或部署时可用 `DATABASE_PATH` 覆盖默认的 `data/travel-agent.db`。
+
+## 旅行相册
+
+MVP 使用 JSON data URL 上传 JPEG、PNG 或 WebP，每张图片最大 8 MB。图片文件保存在 `data/uploads/`，SQLite 仅保存 URL、标题、关联日期与封面等元数据。
+
+```bash
+curl -X POST http://localhost:3000/api/trips/TRIP_ID/photos \
+  -H 'content-type: application/json' \
+  -d '{
+    "dataUrl":"data:image/png;base64,...",
+    "caption":"西湖日落",
+    "dayNumber":2
+  }'
+```
+
+第一张上传成功的照片自动成为封面；删除封面后会自动选择下一张照片。可通过 `UPLOADS_PATH` 覆盖默认图片目录。`data/uploads/` 已被 Git 忽略。
