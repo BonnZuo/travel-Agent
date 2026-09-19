@@ -72,6 +72,8 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
   });
   assert.equal(staleResponse.status, 409);
   assert.equal((await staleResponse.json()).code, "VERSION_CONFLICT");
+  const revisionHistory = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/revisions`);
+  assert.deepEqual(revisionHistory.revisions, []);
 
   const uploaded = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/photos`, {
     method: "POST",

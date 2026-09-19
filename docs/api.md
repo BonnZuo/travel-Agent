@@ -132,7 +132,7 @@ curl -X POST http://localhost:3000/api/trips/TRIP_ID/revisions \
   }'
 ```
 
-`scope: "days"` 只允许修改指定日期；`scope: "trip"` 可调整整个行程。响应包含保存后的 `trip`，以及受影响日期、修改摘要、预算变化和版本号组成的 `revision`。
+`scope: "days"` 只允许修改指定日期；`scope: "trip"` 可调整整个行程。响应包含保存后的 `trip`，以及受影响日期、修改摘要、预算变化和版本号组成的 `revision`。前端通过 `GET /api/trips/:tripId/revisions` 按时间倒序展示完整修改记录。
 
 测试或部署时可用 `DATABASE_PATH` 覆盖默认的 `data/travel-agent.db`。
 
