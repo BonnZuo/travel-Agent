@@ -20,6 +20,7 @@ npm start
 | `GET` | `/api/trips/:tripId/revisions` | 获取行程修改历史 |
 | `POST` | `/api/trips/:tripId/revisions` | AI 局部或整段重规划 |
 | `PATCH` | `/api/trips/:tripId/locks` | 锁定或解锁日期、活动 |
+| `GET` | `/api/trips/:tripId/export` | 下载 Markdown 行程文档 |
 | `GET` | `/api/trips/:tripId/photos` | 获取旅行相册 |
 | `POST` | `/api/trips/:tripId/photos` | 上传旅行照片 |
 | `DELETE` | `/api/trips/:tripId/photos/:photoId` | 删除旅行照片 |
@@ -134,6 +135,16 @@ curl -X POST http://localhost:3000/api/trips/TRIP_ID/revisions \
 `scope: "days"` 只允许修改指定日期；`scope: "trip"` 可调整整个行程。响应包含保存后的 `trip`，以及受影响日期、修改摘要、预算变化和版本号组成的 `revision`。
 
 测试或部署时可用 `DATABASE_PATH` 覆盖默认的 `data/travel-agent.db`。
+
+## 分享与导出
+
+行程页的“分享”按钮会复制形如 `/?trip=TRIP_ID` 的链接。访问该链接时，前端从当前服务实例的数据库读取行程并直接打开详情。因此，本地链接只对能访问同一服务与数据库的人有效；现阶段尚未加入公开分享令牌、账号权限或隐私脱敏。
+
+`GET /api/trips/:tripId/export` 会下载 UTF-8 Markdown 文档，包含旅行概览、预算、逐日活动与出行提示：
+
+```bash
+curl -OJ http://localhost:3000/api/trips/TRIP_ID/export
+```
 
 ## 旅行相册
 

@@ -398,7 +398,7 @@ MVP 功能：
 | `/api/trips/{id}/replan` | `POST` | 局部或全局重规划 |
 | `/api/trips/{id}/days/{day}` | `PATCH` | 修改某天行程 |
 | `/api/trips/{id}/share` | `POST` | 创建分享链接 |
-| `/api/trips/{id}/export` | `POST` | 导出行程内容 |
+| `/api/trips/{id}/export` | `GET` | 导出 Markdown 行程内容 |
 
 ## 10. 验收标准
 

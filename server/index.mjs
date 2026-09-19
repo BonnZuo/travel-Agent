@@ -23,6 +23,40 @@ function send(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function sendText(response, status, body, contentType = "text/plain; charset=utf-8", headers = {}) {
+  response.writeHead(status, { "content-type": contentType, ...headers });
+  response.end(body);
+}
+
+function tripMarkdown(trip) {
+  const lines = [
+    `# ${trip.title}`,
+    "",
+    `- 目的地：${trip.destinations.join("、")}`,
+    `- 出发地：${trip.origin || "未设定"}`,
+    `- 时间：${trip.startDate ? `${trip.startDate} 至 ${trip.endDate}` : trip.travelTiming || "未设定"}`,
+    `- 时长：${trip.durationDays} 天`,
+    `- 人数：${trip.travelers.count} 人`,
+    `- 节奏：${trip.preferences.pace}`
+  ];
+  if (trip.budget?.perPerson) lines.push(`- 人均预算目标：${trip.budget.currency} ${trip.budget.perPerson}`);
+  if (trip.budgetEstimate) lines.push(`- 人均预算估算：${trip.budgetEstimate.totalPerPerson.currency} ${trip.budgetEstimate.totalPerPerson.min}–${trip.budgetEstimate.totalPerPerson.max}`);
+  lines.push("", `> 原始需求：${trip.originalPrompt.replace(/\n/g, " ")}`, "");
+  for (const day of trip.itinerary) {
+    lines.push(`## Day ${day.dayNumber}｜${day.city}｜${day.theme}`, "");
+    for (const activity of day.activities) {
+      lines.push(`- **${activity.timeSlot}｜${activity.title}**${activity.durationMinutes ? `（约 ${activity.durationMinutes} 分钟）` : ""}`);
+      if (activity.reason) lines.push(`  - ${activity.reason}`);
+      for (const note of activity.notes || []) lines.push(`  - 提示：${note}`);
+    }
+    lines.push("", `预计花费：${day.estimatedBudget.currency} ${day.estimatedBudget.min}–${day.estimatedBudget.max} / 人`);
+    if (day.tip) lines.push(`\n出行提示：${day.tip}`);
+    lines.push("");
+  }
+  lines.push("---", `导出时间：${new Date().toISOString()}`, "价格、开放时间和交通信息请在出发前通过官方渠道复核。");
+  return lines.join("\n");
+}
+
 async function readJson(request, maxBytes = 1_000_000) {
   let body = "";
   for await (const chunk of request) {
@@ -120,6 +154,7 @@ const server = createServer(async (request, response) => {
     const locksMatch = path.match(/^\/api\/trips\/([\w-]+)\/locks$/);
     const photosMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos$/);
     const photoMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos\/([\w-]+)$/);
+    const exportMatch = path.match(/^\/api\/trips\/([\w-]+)\/export$/);
     if (request.method === "POST" && generateMatch) {
       const existing = db.find(generateMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
@@ -198,6 +233,12 @@ const server = createServer(async (request, response) => {
       const album = { ...existing.album, photos, coverPhotoId: existing.album.coverPhotoId === photo.id ? photos[0]?.id : existing.album.coverPhotoId, updatedAt: new Date().toISOString() };
       const trip = db.save({ ...existing, album, version: existing.version + 1 });
       return send(response, 200, { trip, album });
+    }
+    if (request.method === "GET" && exportMatch) {
+      const existing = db.find(exportMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      const safeName = existing.title.replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-|-$/g, "") || "travel-plan";
+      return sendText(response, 200, tripMarkdown(existing), "text/markdown; charset=utf-8", { "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}.md` });
     }
     if (request.method === "GET" && match) {
       const trip = db.find(match[1]);

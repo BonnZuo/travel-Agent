@@ -53,6 +53,13 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
       preferences: { interests: [], pace: "balanced", avoid: [], constraints: [] }
     })
   });
+  const exportResponse = await fetch(`${baseUrl}/api/trips/${trip.id}/export`);
+  assert.equal(exportResponse.status, 200);
+  assert.match(exportResponse.headers.get("content-type"), /^text\/markdown/);
+  const markdown = await exportResponse.text();
+  assert.match(markdown, /# 杭州之旅/);
+  assert.match(markdown, /目的地：杭州/);
+
   const uploaded = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/photos`, {
     method: "POST",
     body: JSON.stringify({
