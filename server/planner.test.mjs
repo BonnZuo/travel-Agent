@@ -79,6 +79,31 @@ test("补充需求只更新用户明确修改的人数", { concurrency: false },
   });
 });
 
+test("DeepSeek 超时时返回可识别的 504 错误", { concurrency: false }, async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.DEEPSEEK_API_KEY;
+  const originalTimeout = process.env.DEEPSEEK_TIMEOUT_MS;
+  process.env.DEEPSEEK_API_KEY = "test-key";
+  process.env.DEEPSEEK_TIMEOUT_MS = "1000";
+  globalThis.fetch = async () => {
+    const error = new Error("timed out");
+    error.name = "TimeoutError";
+    throw error;
+  };
+  try {
+    await assert.rejects(
+      () => extractTripIntent("两个人去杭州三天"),
+      (error) => error.status === 504 && /1 秒内未响应/.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = originalKey;
+    if (originalTimeout === undefined) delete process.env.DEEPSEEK_TIMEOUT_MS;
+    else process.env.DEEPSEEK_TIMEOUT_MS = originalTimeout;
+  }
+});
+
 test("局部重规划只修改指定日期并保留锁定活动", { concurrency: false }, async () => {
   const money = { min: 100, max: 200, currency: "CNY" };
   const activity = (id, title, locked = false) => ({ id, title, category: "attraction", timeSlot: "morning", durationMinutes: 120, reason: "测试", notes: [], reservationRequired: false, locked });

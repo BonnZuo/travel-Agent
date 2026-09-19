@@ -10,7 +10,7 @@ npm start
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/health` | 健康检查 |
+| `GET` | `/api/health` | 健康检查，并报告 AI 是否已配置 |
 | `GET` | `/api/trips` | 获取全部旅行，按最近更新排序 |
 | `POST` | `/api/trips/parse` | 通过 AI 提取自然语言旅行需求 |
 | `POST` | `/api/trips` | 创建旅行草稿 |
@@ -79,7 +79,7 @@ curl -X POST http://localhost:3000/api/trips/parse \
 
 ## 保存修改
 
-`PATCH /api/trips/:tripId` 接受旅行对象的部分字段。服务端会合并嵌套的 `travelers` 与 `preferences`，递增 `version`，并更新 `updatedAt`。
+`PATCH /api/trips/:tripId` 接受旅行对象的部分字段。服务端会合并嵌套的 `travelers` 与 `preferences`，递增 `version`，并更新 `updatedAt`。修改请求可携带当前对象的 `expectedVersion`；若数据库已出现更新，服务端返回 `409` 和 `VERSION_CONFLICT`，避免旧页面覆盖新数据。生成、重规划、锁定与相册写操作也支持同样的版本检查，前端默认会携带该字段。
 
 前端“我的行程”使用 `GET /api/trips` 加载全部旅行，并通过更新 `status` 在 `draft`、`ready` 与 `archived` 之间切换。归档不会删除行程或照片。
 
@@ -100,7 +100,7 @@ npm start
 
 `POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。模型同时返回人均总预算与大交通、住宿、餐饮、景点活动、预留金五类估算区间。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
 
-服务端根据用户人均预算计算 `budgetEstimate.status`：
+DeepSeek 请求默认在 45 秒后超时并返回 `504`，可通过 `DEEPSEEK_TIMEOUT_MS` 在 1000–180000 毫秒范围内调整。服务端根据用户人均预算计算 `budgetEstimate.status`：
 
 - `sufficient`：估算上限低于预算的 85%。
 - `near_limit`：估算上限达到预算的 85%，但未超过预算。

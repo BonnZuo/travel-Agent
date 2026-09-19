@@ -183,11 +183,14 @@ function buildBudgetEstimate(plan, trip, itinerary) {
 
 async function deepSeekJson({ name, schema, instructions, input }) {
   if (!process.env.DEEPSEEK_API_KEY) throw generationError("未配置 DEEPSEEK_API_KEY，无法调用 AI", 503);
+  const configuredTimeout = Number(process.env.DEEPSEEK_TIMEOUT_MS || 45_000);
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout >= 1_000 ? Math.min(configuredTimeout, 180_000) : 45_000;
   let apiResponse;
   try {
     apiResponse = await fetch(DEEPSEEK_ENDPOINT, {
       method: "POST",
       headers: { "authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`, "content-type": "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
         store: false,
@@ -197,9 +200,17 @@ async function deepSeekJson({ name, schema, instructions, input }) {
       })
     });
   } catch (error) {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
+      throw generationError(`DeepSeek API 在 ${Math.round(timeoutMs / 1000)} 秒内未响应，请稍后重试。`, 504);
+    }
     throw generationError(`无法连接 DeepSeek API（${error.cause?.code || "network_error"}）。请检查网络或代理配置。`, 503);
   }
-  const response = await apiResponse.json();
+  let response;
+  try {
+    response = await apiResponse.json();
+  } catch {
+    throw generationError("DeepSeek API 返回了无法解析的响应", 502);
+  }
   if (!apiResponse.ok) throw generationError(response.error?.message || "DeepSeek API 请求失败", apiResponse.status);
   const text = outputText(response);
   if (!text) throw generationError("DeepSeek API 未返回内容");

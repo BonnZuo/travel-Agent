@@ -132,6 +132,28 @@ export function openDatabase(filePath) {
     return updatedTrip;
   }
 
+  function saveRevision(revision) {
+    writeRevision.run(
+      revision.id, revision.tripId, revision.instruction, revision.scope,
+      json(revision.affectedDayNumbers), json(revision.changeSummary), revision.budgetDelta || 0,
+      revision.previousVersion, revision.version, revision.createdAt
+    );
+    return revision;
+  }
+
+  function saveTripWithRevision(trip, revision) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const updatedTrip = save(trip);
+      const updatedRevision = saveRevision(revision);
+      db.exec("COMMIT");
+      return { trip: updatedTrip, revision: updatedRevision };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   return {
     list() {
       return db.prepare("SELECT * FROM trips ORDER BY updated_at DESC").all().map(toTrip);
@@ -143,14 +165,8 @@ export function openDatabase(filePath) {
       return save({ ...trip, createdAt: now(), updatedAt: now() });
     },
     save,
-    saveRevision(revision) {
-      writeRevision.run(
-        revision.id, revision.tripId, revision.instruction, revision.scope,
-        json(revision.affectedDayNumbers), json(revision.changeSummary), revision.budgetDelta || 0,
-        revision.previousVersion, revision.version, revision.createdAt
-      );
-      return revision;
-    },
+    saveRevision,
+    saveTripWithRevision,
     listRevisions(tripId) {
       return db.prepare("SELECT * FROM trip_revisions WHERE trip_id = ? ORDER BY created_at DESC").all(tripId).map(toRevision);
     },

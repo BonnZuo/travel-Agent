@@ -24,7 +24,7 @@ function send(response, status, body) {
 }
 
 function sendText(response, status, body, contentType = "text/plain; charset=utf-8", headers = {}) {
-  response.writeHead(status, { "content-type": contentType, ...headers });
+  response.writeHead(status, { "content-type": contentType, "access-control-allow-origin": "*", ...headers });
   response.end(body);
 }
 
@@ -79,6 +79,25 @@ function badRequest(message) {
   const error = new Error(message);
   error.status = 400;
   return error;
+}
+
+function versionConflict() {
+  const error = new Error("行程已在其他操作中更新，请刷新后重试");
+  error.status = 409;
+  error.code = "VERSION_CONFLICT";
+  return error;
+}
+
+function assertExpectedVersion(trip, expectedVersion) {
+  if (expectedVersion === undefined) return;
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest("expectedVersion must be a positive integer");
+  if (trip.version !== expectedVersion) throw versionConflict();
+}
+
+function assertUnchanged(tripId, version) {
+  const current = db.find(tripId);
+  if (!current || current.version !== version) throw versionConflict();
+  return current;
 }
 
 function calculateEndDate(startDate, durationDays) {
@@ -140,7 +159,7 @@ const server = createServer(async (request, response) => {
       return response.end();
     }
     const path = new URL(request.url, `http://${request.headers.host}`).pathname;
-    if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok" });
+    if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok", aiConfigured: Boolean(process.env.DEEPSEEK_API_KEY) });
     if (request.method === "GET" && path.startsWith("/uploads/")) return serveUpload(path, response);
     if (request.method === "GET" && path === "/api/trips") return send(response, 200, { trips: db.list() });
     if (request.method === "POST" && path === "/api/trips/parse") {
@@ -156,9 +175,12 @@ const server = createServer(async (request, response) => {
     const photoMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos\/([\w-]+)$/);
     const exportMatch = path.match(/^\/api\/trips\/([\w-]+)\/export$/);
     if (request.method === "POST" && generateMatch) {
+      const { expectedVersion } = await readJson(request);
       const existing = db.find(generateMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
       const generated = await generateItinerary(existing);
+      assertUnchanged(existing.id, existing.version);
       const trip = db.save({ ...existing, ...generated, version: existing.version + 1, status: "ready" });
       return send(response, 200, { trip });
     }
@@ -168,17 +190,20 @@ const server = createServer(async (request, response) => {
       return send(response, 200, { revisions: db.listRevisions(existing.id) });
     }
     if (request.method === "POST" && revisionsMatch) {
+      const revisionRequest = await readJson(request);
       const existing = db.find(revisionsMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
-      const revised = await reviseItinerary(existing, await readJson(request));
-      const trip = db.save({ ...existing, title: revised.title, itinerary: revised.itinerary, budgetEstimate: revised.budgetEstimate, version: revised.revision.version, status: "ready" });
-      const revision = db.saveRevision(revised.revision);
+      assertExpectedVersion(existing, revisionRequest.expectedVersion);
+      const revised = await reviseItinerary(existing, revisionRequest);
+      assertUnchanged(existing.id, existing.version);
+      const { trip, revision } = db.saveTripWithRevision({ ...existing, title: revised.title, itinerary: revised.itinerary, budgetEstimate: revised.budgetEstimate, version: revised.revision.version, status: "ready" }, revised.revision);
       return send(response, 200, { trip, revision });
     }
     if (request.method === "PATCH" && locksMatch) {
+      const { dayNumber, activityId, locked, expectedVersion } = await readJson(request);
       const existing = db.find(locksMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
-      const { dayNumber, activityId, locked } = await readJson(request);
+      assertExpectedVersion(existing, expectedVersion);
       if (!Number.isInteger(dayNumber) || typeof locked !== "boolean") throw badRequest("dayNumber and locked are required");
       let targetFound = false;
       const itinerary = existing.itinerary.map((day) => {
@@ -201,9 +226,10 @@ const server = createServer(async (request, response) => {
       return send(response, 200, { album: existing.album || null });
     }
     if (request.method === "POST" && photosMatch) {
+      const { dataUrl, caption, dayNumber, expectedVersion } = await readJson(request, 12_000_000);
       const existing = db.find(photosMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
-      const { dataUrl, caption, dayNumber } = await readJson(request, 12_000_000);
+      assertExpectedVersion(existing, expectedVersion);
       const image = typeof dataUrl === "string" && dataUrl.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
       if (!image) throw badRequest("photo must be a JPEG, PNG, or WebP data URL");
       const buffer = Buffer.from(image[2], "base64");
@@ -215,23 +241,28 @@ const server = createServer(async (request, response) => {
       const directory = join(uploadsRoot, existing.id);
       await mkdir(directory, { recursive: true });
       await writeFile(join(directory, fileName), buffer, { flag: "wx" });
+      try { assertUnchanged(existing.id, existing.version); } catch (error) { await unlink(join(directory, fileName)).catch(() => {}); throw error; }
       const createdAt = new Date().toISOString();
       const photo = { id: photoId, tripId: existing.id, url: `/uploads/${existing.id}/${fileName}`, thumbnailUrl: `/uploads/${existing.id}/${fileName}`, caption: typeof caption === "string" ? caption.trim().slice(0, 280) : undefined, dayNumber, uploadStatus: "ready", createdAt };
       const album = existing.album || { id: randomUUID(), tripId: existing.id, title: `${existing.title}相册`, photos: [], createdAt, updatedAt: createdAt };
       const updatedAlbum = { ...album, coverPhotoId: album.coverPhotoId || photo.id, photos: [...album.photos, photo], updatedAt: createdAt };
-      const trip = db.save({ ...existing, album: updatedAlbum, version: existing.version + 1 });
+      let trip;
+      try { trip = db.save({ ...existing, album: updatedAlbum, version: existing.version + 1 }); }
+      catch (error) { await unlink(join(directory, fileName)).catch(() => {}); throw error; }
       return send(response, 201, { trip, photo });
     }
     if (request.method === "DELETE" && photoMatch) {
+      const { expectedVersion } = await readJson(request);
       const existing = db.find(photoMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
       const photo = existing.album?.photos.find((item) => item.id === photoMatch[2]);
       if (!photo) return send(response, 404, { error: "Photo not found" });
       const target = join(uploadsRoot, photo.url.replace(/^\/uploads\//, ""));
-      if (target.startsWith(`${uploadsRoot}/`)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") throw error; });
       const photos = existing.album.photos.filter((item) => item.id !== photo.id);
       const album = { ...existing.album, photos, coverPhotoId: existing.album.coverPhotoId === photo.id ? photos[0]?.id : existing.album.coverPhotoId, updatedAt: new Date().toISOString() };
       const trip = db.save({ ...existing, album, version: existing.version + 1 });
+      if (target.startsWith(`${uploadsRoot}/`)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") console.warn(`Unable to remove photo file ${target}: ${error.message}`); });
       return send(response, 200, { trip, album });
     }
     if (request.method === "GET" && exportMatch) {
@@ -249,15 +280,17 @@ const server = createServer(async (request, response) => {
       return send(response, 201, { trip });
     }
     if (request.method === "PATCH" && match) {
+      const { expectedVersion, ...changes } = await readJson(request);
       const existing = db.find(match[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
-      const trip = db.save(normalizeTrip({ ...(await readJson(request)), id: existing.id }, existing));
+      assertExpectedVersion(existing, expectedVersion);
+      const trip = db.save(normalizeTrip({ ...changes, id: existing.id }, existing));
       return send(response, 200, { trip });
     }
     if (path.startsWith("/api/")) return send(response, 404, { error: "API route not found" });
     return serveStatic(request, response);
   } catch (error) {
-    return send(response, error.status ?? 500, { error: error.message || "Internal server error" });
+    return send(response, error.status ?? 500, { error: error.message || "Internal server error", ...(error.code ? { code: error.code } : {}) });
   }
 });
 

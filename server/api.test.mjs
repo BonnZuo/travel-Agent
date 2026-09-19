@@ -60,6 +60,19 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
   assert.match(markdown, /# 杭州之旅/);
   assert.match(markdown, /目的地：杭州/);
 
+  const updated = await jsonRequest(`${baseUrl}/api/trips/${trip.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: "杭州慢游", expectedVersion: trip.version })
+  });
+  assert.equal(updated.trip.version, trip.version + 1);
+  const staleResponse = await fetch(`${baseUrl}/api/trips/${trip.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "过期修改", expectedVersion: trip.version })
+  });
+  assert.equal(staleResponse.status, 409);
+  assert.equal((await staleResponse.json()).code, "VERSION_CONFLICT");
+
   const uploaded = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/photos`, {
     method: "POST",
     body: JSON.stringify({
