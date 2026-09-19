@@ -20,6 +20,7 @@ export type ActivityCategory =
   | "free_time";
 export type TimeSlot = "morning" | "afternoon" | "evening" | "all_day";
 export type PhotoUploadStatus = "pending" | "uploading" | "ready" | "failed";
+export type ChecklistCategory = "documents" | "booking" | "packing" | "health" | "money" | "other";
 
 export interface MoneyRange {
   min: number;
@@ -141,6 +142,23 @@ export interface TravelAlbum {
   updatedAt: string;
 }
 
+export interface ChecklistItem {
+  id: string;
+  title: string;
+  category: ChecklistCategory;
+  reason: string;
+  completed: boolean;
+  source: "ai" | "manual";
+  createdAt: string;
+}
+
+export interface TravelChecklist {
+  id: string;
+  tripId: string;
+  items: ChecklistItem[];
+  updatedAt: string;
+}
+
 export interface Trip {
   id: string;
   userId?: string;
@@ -161,6 +179,7 @@ export interface Trip {
   preferences: TripPreferences;
   itinerary: ItineraryDay[];
   album?: TravelAlbum;
+  checklist?: TravelChecklist;
   createdAt: string;
   updatedAt: string;
 }

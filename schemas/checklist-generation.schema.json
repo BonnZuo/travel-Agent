@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "category", "reason"],
+        "properties": {
+          "title": { "type": "string" },
+          "category": { "type": "string", "enum": ["documents", "booking", "packing", "health", "money", "other"] },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

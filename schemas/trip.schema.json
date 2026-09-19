@@ -47,6 +47,7 @@
     },
     "itinerary": { "type": "array", "items": { "$ref": "#/$defs/itineraryDay" } },
     "album": { "$ref": "#/$defs/travelAlbum" },
+    "checklist": { "$ref": "#/$defs/travelChecklist" },
     "createdAt": { "type": "string", "format": "date-time" },
     "updatedAt": { "type": "string", "format": "date-time" }
   },
@@ -171,6 +172,31 @@
         "coverPhotoId": { "type": "string" },
         "photos": { "type": "array", "items": { "$ref": "#/$defs/travelPhoto" } },
         "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "checklistItem": {
+      "type": "object",
+      "required": ["id", "title", "category", "reason", "completed", "source", "createdAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "category": { "enum": ["documents", "booking", "packing", "health", "money", "other"] },
+        "reason": { "type": "string", "maxLength": 280 },
+        "completed": { "type": "boolean" },
+        "source": { "enum": ["ai", "manual"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "travelChecklist": {
+      "type": "object",
+      "required": ["id", "tripId", "items", "updatedAt"],
+      "properties": {
+        "id": { "type": "string" },
+        "tripId": { "type": "string" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/checklistItem" } },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "additionalProperties": false

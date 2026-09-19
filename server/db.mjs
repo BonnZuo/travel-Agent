@@ -30,6 +30,7 @@ export function openDatabase(filePath) {
       preferences_json TEXT NOT NULL,
       itinerary_json TEXT NOT NULL,
       album_json TEXT,
+      checklist_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -59,6 +60,11 @@ export function openDatabase(filePath) {
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) throw error;
   }
+  try {
+    db.exec("ALTER TABLE trips ADD COLUMN checklist_json TEXT");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) throw error;
+  }
 
   const toTrip = (row) => row && ({
     id: row.id,
@@ -79,6 +85,7 @@ export function openDatabase(filePath) {
     preferences: parse(row.preferences_json),
     itinerary: parse(row.itinerary_json),
     album: parse(row.album_json),
+    checklist: parse(row.checklist_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
@@ -87,8 +94,8 @@ export function openDatabase(filePath) {
     INSERT INTO trips (
       id, user_id, version, status, title, original_prompt, origin, destinations_json, travel_timing,
       start_date, end_date, duration_days, travelers_json, budget_json, preferences_json,
-      budget_estimate_json, itinerary_json, album_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      budget_estimate_json, itinerary_json, album_json, checklist_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       user_id = excluded.user_id, version = excluded.version, status = excluded.status,
       title = excluded.title, original_prompt = excluded.original_prompt, origin = excluded.origin,
@@ -97,7 +104,7 @@ export function openDatabase(filePath) {
       travelers_json = excluded.travelers_json, budget_json = excluded.budget_json,
       budget_estimate_json = excluded.budget_estimate_json,
       preferences_json = excluded.preferences_json, itinerary_json = excluded.itinerary_json,
-      album_json = excluded.album_json, updated_at = excluded.updated_at
+      album_json = excluded.album_json, checklist_json = excluded.checklist_json, updated_at = excluded.updated_at
   `);
   const writeRevision = db.prepare(`
     INSERT INTO trip_revisions (
@@ -127,7 +134,7 @@ export function openDatabase(filePath) {
       json(updatedTrip.destinations), updatedTrip.travelTiming ?? null, updatedTrip.startDate ?? null, updatedTrip.endDate ?? null,
       updatedTrip.durationDays, json(updatedTrip.travelers), json(updatedTrip.budget),
       json(updatedTrip.preferences), json(updatedTrip.budgetEstimate), json(updatedTrip.itinerary), json(updatedTrip.album),
-      updatedTrip.createdAt, updatedTrip.updatedAt
+      json(updatedTrip.checklist), updatedTrip.createdAt, updatedTrip.updatedAt
     );
     return updatedTrip;
   }

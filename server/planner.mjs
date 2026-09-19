@@ -4,10 +4,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const schemasDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "schemas");
-const [itinerarySchema, tripIntentSchema, itineraryRevisionSchema] = await Promise.all([
+const [itinerarySchema, tripIntentSchema, itineraryRevisionSchema, checklistSchema] = await Promise.all([
   readFile(join(schemasDirectory, "itinerary-generation.schema.json"), "utf8").then(JSON.parse),
   readFile(join(schemasDirectory, "trip-intent.schema.json"), "utf8").then(JSON.parse),
-  readFile(join(schemasDirectory, "itinerary-revision.schema.json"), "utf8").then(JSON.parse)
+  readFile(join(schemasDirectory, "itinerary-revision.schema.json"), "utf8").then(JSON.parse),
+  readFile(join(schemasDirectory, "checklist-generation.schema.json"), "utf8").then(JSON.parse)
 ]);
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/responses";
 
@@ -247,6 +248,44 @@ export async function generateItinerary(trip) {
     itinerary,
     budgetEstimate: buildBudgetEstimate(plan, trip, itinerary)
   };
+}
+
+export async function generateChecklist(trip) {
+  const result = await deepSeekJson({
+    name: "travel_checklist",
+    schema: checklistSchema,
+    instructions: "你是旅行行前准备助手。根据旅行目的地、时间、同行人、偏好与已生成行程，生成 6 至 20 条简洁、可操作的中文准备事项。只给与这次旅行相关的事项，避免泛泛重复；对于证件、签证、保险、健康要求等可能变化的信息，使用‘核对’或‘确认’措辞，不得断言实时政策。category 必须从 documents、booking、packing、health、money、other 中选择。输出严格符合 JSON Schema，不添加解释。",
+    input: JSON.stringify({
+      origin: trip.origin,
+      destinations: trip.destinations,
+      travelTiming: trip.travelTiming,
+      startDate: trip.startDate,
+      durationDays: trip.durationDays,
+      travelers: trip.travelers,
+      preferences: trip.preferences,
+      itinerary: trip.itinerary?.map((day) => ({ dayNumber: day.dayNumber, city: day.city, activities: day.activities.map((activity) => activity.title) })) || []
+    })
+  });
+  const existingItems = trip.checklist?.items || [];
+  const existingByTitle = new Map(existingItems.map((item) => [item.title.trim().toLowerCase(), item]));
+  const generatedTitles = new Set();
+  const generatedItems = result.items.map((item) => {
+    const title = cleanText(item.title).slice(0, 160);
+    const existing = existingByTitle.get(title.toLowerCase());
+    generatedTitles.add(title.toLowerCase());
+    return {
+      id: existing?.id || randomUUID(),
+      title,
+      category: ["documents", "booking", "packing", "health", "money", "other"].includes(item.category) ? item.category : "other",
+      reason: cleanText(item.reason).slice(0, 280),
+      completed: existing?.completed || false,
+      source: "ai",
+      createdAt: existing?.createdAt || new Date().toISOString()
+    };
+  }).filter((item) => item.title);
+  const manualItems = existingItems.filter((item) => item.source === "manual" && !generatedTitles.has(item.title.trim().toLowerCase()));
+  const now = new Date().toISOString();
+  return { id: trip.checklist?.id || randomUUID(), tripId: trip.id, items: [...generatedItems, ...manualItems], updatedAt: now };
 }
 
 export async function reviseItinerary(trip, request) {

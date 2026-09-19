@@ -93,4 +93,21 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
   assert.deepEqual(deleted.album.photos, []);
   assert.equal(deleted.album.coverPhotoId, undefined);
   assert.equal((await fetch(`${baseUrl}${uploaded.photo.url}`)).status, 404);
+
+  const addedItem = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/checklist`, {
+    method: "POST",
+    body: JSON.stringify({ title: "打印酒店确认单", category: "booking", expectedVersion: deleted.trip.version })
+  });
+  assert.equal(addedItem.item.source, "manual");
+  assert.equal(addedItem.checklist.items.length, 1);
+  const completedItem = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/checklist/${addedItem.item.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ completed: true, expectedVersion: addedItem.trip.version })
+  });
+  assert.equal(completedItem.checklist.items[0].completed, true);
+  const removedItem = await jsonRequest(`${baseUrl}/api/trips/${trip.id}/checklist/${addedItem.item.id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ expectedVersion: completedItem.trip.version })
+  });
+  assert.deepEqual(removedItem.checklist.items, []);
 });

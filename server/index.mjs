@@ -5,7 +5,7 @@ import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:pat
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
-import { extractTripIntent, generateItinerary, reviseItinerary } from "./planner.mjs";
+import { extractTripIntent, generateChecklist, generateItinerary, reviseItinerary } from "./planner.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const databasePath = process.env.DATABASE_PATH
@@ -51,6 +51,11 @@ function tripMarkdown(trip) {
     }
     lines.push("", `预计花费：${day.estimatedBudget.currency} ${day.estimatedBudget.min}–${day.estimatedBudget.max} / 人`);
     if (day.tip) lines.push(`\n出行提示：${day.tip}`);
+    lines.push("");
+  }
+  if (trip.checklist?.items?.length) {
+    lines.push("## 行前准备清单", "");
+    for (const item of trip.checklist.items) lines.push(`- [${item.completed ? "x" : " "}] ${item.title}${item.reason ? ` — ${item.reason}` : ""}`);
     lines.push("");
   }
   lines.push("---", `导出时间：${new Date().toISOString()}`, "价格、开放时间和交通信息请在出发前通过官方渠道复核。");
@@ -174,6 +179,9 @@ const server = createServer(async (request, response) => {
     const photosMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos$/);
     const photoMatch = path.match(/^\/api\/trips\/([\w-]+)\/photos\/([\w-]+)$/);
     const exportMatch = path.match(/^\/api\/trips\/([\w-]+)\/export$/);
+    const checklistMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist$/);
+    const checklistGenerateMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist\/generate$/);
+    const checklistItemMatch = path.match(/^\/api\/trips\/([\w-]+)\/checklist\/([\w-]+)$/);
     if (request.method === "POST" && generateMatch) {
       const { expectedVersion } = await readJson(request);
       const existing = db.find(generateMatch[1]);
@@ -265,6 +273,65 @@ const server = createServer(async (request, response) => {
       if (target.startsWith(`${uploadsRoot}/`)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") console.warn(`Unable to remove photo file ${target}: ${error.message}`); });
       return send(response, 200, { trip, album });
     }
+    if (request.method === "GET" && checklistMatch) {
+      const existing = db.find(checklistMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      return send(response, 200, { checklist: existing.checklist || null });
+    }
+    if (request.method === "POST" && checklistGenerateMatch) {
+      const { expectedVersion } = await readJson(request);
+      const existing = db.find(checklistGenerateMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      const checklist = await generateChecklist(existing);
+      assertUnchanged(existing.id, existing.version);
+      const trip = db.save({ ...existing, checklist, version: existing.version + 1 });
+      return send(response, 200, { trip, checklist });
+    }
+    if (request.method === "POST" && checklistMatch) {
+      const { title, category = "other", reason, expectedVersion } = await readJson(request);
+      const existing = db.find(checklistMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      if (typeof title !== "string" || !title.trim() || title.trim().length > 160) throw badRequest("checklist item title must be 1 to 160 characters");
+      const allowedCategories = ["documents", "booking", "packing", "health", "money", "other"];
+      if (!allowedCategories.includes(category)) throw badRequest("checklist item category is invalid");
+      const timestamp = new Date().toISOString();
+      const item = { id: randomUUID(), title: title.trim(), category, reason: typeof reason === "string" ? reason.trim().slice(0, 280) : "", completed: false, source: "manual", createdAt: timestamp };
+      const checklist = existing.checklist || { id: randomUUID(), tripId: existing.id, items: [], updatedAt: timestamp };
+      const updatedChecklist = { ...checklist, items: [...checklist.items, item], updatedAt: timestamp };
+      const trip = db.save({ ...existing, checklist: updatedChecklist, version: existing.version + 1 });
+      return send(response, 201, { trip, checklist: updatedChecklist, item });
+    }
+    if (request.method === "PATCH" && checklistItemMatch) {
+      const { completed, title, expectedVersion } = await readJson(request);
+      const existing = db.find(checklistItemMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      const itemId = checklistItemMatch[2];
+      let found = false;
+      const items = (existing.checklist?.items || []).map((item) => {
+        if (item.id !== itemId) return item;
+        found = true;
+        if (completed !== undefined && typeof completed !== "boolean") throw badRequest("completed must be a boolean");
+        if (title !== undefined && (typeof title !== "string" || !title.trim() || title.trim().length > 160)) throw badRequest("title must be 1 to 160 characters");
+        return { ...item, ...(completed === undefined ? {} : { completed }), ...(title === undefined ? {} : { title: title.trim() }) };
+      });
+      if (!found) return send(response, 404, { error: "Checklist item not found" });
+      const checklist = { ...existing.checklist, items, updatedAt: new Date().toISOString() };
+      const trip = db.save({ ...existing, checklist, version: existing.version + 1 });
+      return send(response, 200, { trip, checklist });
+    }
+    if (request.method === "DELETE" && checklistItemMatch) {
+      const { expectedVersion } = await readJson(request);
+      const existing = db.find(checklistItemMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      assertExpectedVersion(existing, expectedVersion);
+      if (!existing.checklist?.items.some((item) => item.id === checklistItemMatch[2])) return send(response, 404, { error: "Checklist item not found" });
+      const checklist = { ...existing.checklist, items: existing.checklist.items.filter((item) => item.id !== checklistItemMatch[2]), updatedAt: new Date().toISOString() };
+      const trip = db.save({ ...existing, checklist, version: existing.version + 1 });
+      return send(response, 200, { trip, checklist });
+    }
     if (request.method === "GET" && exportMatch) {
       const existing = db.find(exportMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
@@ -295,4 +362,16 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, () => console.log(`Travel Agent is running at http://localhost:${server.address().port}`));
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { db.close(); server.close(() => process.exit(0)); });
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close(() => {
+    db.close();
+    process.exit(0);
+  });
+  setTimeout(() => {
+    server.closeAllConnections();
+  }, 5_000).unref();
+}
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, shutdown);

@@ -24,6 +24,11 @@ npm start
 | `GET` | `/api/trips/:tripId/photos` | 获取旅行相册 |
 | `POST` | `/api/trips/:tripId/photos` | 上传旅行照片 |
 | `DELETE` | `/api/trips/:tripId/photos/:photoId` | 删除旅行照片 |
+| `GET` | `/api/trips/:tripId/checklist` | 获取行前准备清单 |
+| `POST` | `/api/trips/:tripId/checklist/generate` | 通过 AI 生成或更新清单 |
+| `POST` | `/api/trips/:tripId/checklist` | 手动添加准备事项 |
+| `PATCH` | `/api/trips/:tripId/checklist/:itemId` | 修改事项或完成状态 |
+| `DELETE` | `/api/trips/:tripId/checklist/:itemId` | 删除准备事项 |
 
 ## 创建旅行
 
@@ -161,3 +166,15 @@ curl -X POST http://localhost:3000/api/trips/TRIP_ID/photos \
 ```
 
 第一张上传成功的照片自动成为封面；删除封面后会自动选择下一张照片。可通过 `UPLOADS_PATH` 覆盖默认图片目录。`data/uploads/` 已被 Git 忽略。
+
+## 行前准备清单
+
+`POST /api/trips/:tripId/checklist/generate` 根据目的地、时间、同行人、偏好与已有行程调用 DeepSeek 生成准备事项。模型只生成“核对证件要求”等可执行提醒，不把签证、健康或保险信息表述成实时政策结论。请求可携带 `expectedVersion`：
+
+```bash
+curl -X POST http://localhost:3000/api/trips/TRIP_ID/checklist/generate \
+  -H 'content-type: application/json' \
+  -d '{"expectedVersion":3}'
+```
+
+重新生成时会按标题保留已有勾选状态，并保留未重复的手动事项。手动添加使用 `POST /api/trips/:tripId/checklist`，正文包含 `title`、可选 `reason`、`category` 与 `expectedVersion`；分类可选 `documents`、`booking`、`packing`、`health`、`money`、`other`。

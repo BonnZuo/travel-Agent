@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractTripIntent, reviseItinerary } from "./planner.mjs";
+import { extractTripIntent, generateChecklist, reviseItinerary } from "./planner.mjs";
 
 const baseIntent = (overrides = {}) => ({
   origin: "济南",
@@ -102,6 +102,40 @@ test("DeepSeek 超时时返回可识别的 504 错误", { concurrency: false }, 
     if (originalTimeout === undefined) delete process.env.DEEPSEEK_TIMEOUT_MS;
     else process.env.DEEPSEEK_TIMEOUT_MS = originalTimeout;
   }
+});
+
+test("AI 行前清单保留已完成状态和手动事项", { concurrency: false }, async () => {
+  const trip = {
+    id: "trip-checklist",
+    destinations: ["东京"],
+    durationDays: 3,
+    travelers: { count: 2, tripType: "friends" },
+    preferences: { interests: ["美食"], pace: "balanced", avoid: [], constraints: [] },
+    itinerary: [],
+    checklist: {
+      id: "checklist-1",
+      tripId: "trip-checklist",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      items: [
+        { id: "done-1", title: "核对护照有效期", category: "documents", reason: "原原因", completed: true, source: "ai", createdAt: "2026-01-01T00:00:00.000Z" },
+        { id: "manual-1", title: "给朋友带礼物", category: "other", reason: "", completed: false, source: "manual", createdAt: "2026-01-01T00:00:00.000Z" }
+      ]
+    }
+  };
+  const items = [
+    { title: "核对护照有效期", category: "documents", reason: "确认满足入境要求" },
+    { title: "预订住宿", category: "booking", reason: "锁定合适区域" },
+    { title: "准备转换插头", category: "packing", reason: "为电子设备充电" },
+    { title: "准备常用药", category: "health", reason: "应对旅途不适" },
+    { title: "确认支付方式", category: "money", reason: "准备备用支付" },
+    { title: "下载离线地图", category: "other", reason: "应对网络不稳定" }
+  ];
+  await withMockedDeepSeek({ items }, async () => {
+    const checklist = await generateChecklist(trip);
+    assert.equal(checklist.items.find((item) => item.title === "核对护照有效期").completed, true);
+    assert.equal(checklist.items.find((item) => item.title === "核对护照有效期").id, "done-1");
+    assert.equal(checklist.items.some((item) => item.id === "manual-1"), true);
+  });
 });
 
 test("局部重规划只修改指定日期并保留锁定活动", { concurrency: false }, async () => {
