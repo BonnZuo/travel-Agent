@@ -206,6 +206,9 @@ export function openDatabase(filePath) {
     deleteShare(tripId) {
       return db.prepare("DELETE FROM trip_shares WHERE trip_id = ?").run(tripId).changes > 0;
     },
+    health() {
+      return db.prepare("SELECT 1 AS ok").get().ok === 1;
+    },
     close() { db.close(); }
   };
 }

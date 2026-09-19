@@ -50,6 +50,19 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
   const fileOrigin = await fetch(`${baseUrl}/api/health`, { headers: { origin: "null" } });
   assert.equal(fileOrigin.status, 200);
   assert.equal(fileOrigin.headers.get("access-control-allow-origin"), "null");
+  const health = await jsonRequest(`${baseUrl}/api/health`);
+  assert.equal(health.database, "ok");
+  assert.equal(health.aiConfigured, false);
+  const invalidPrompt = await fetch(`${baseUrl}/api/trips/parse`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: 2 })
+  });
+  assert.equal(invalidPrompt.status, 400);
+  assert.equal((await invalidPrompt.json()).code, "VALIDATION_ERROR");
+  const invalidTrip = await fetch(`${baseUrl}/api/trips`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ originalPrompt: "测试", destinations: ["杭州"], durationDays: 2, travelers: { count: 1 }, preferences: { interests: [], pace: "balanced", avoid: [], constraints: [] }, startDate: "2026-02-31" })
+  });
+  assert.equal(invalidTrip.status, 400);
+  assert.equal((await invalidTrip.json()).code, "VALIDATION_ERROR");
 
   const { trip } = await jsonRequest(`${baseUrl}/api/trips`, {
     method: "POST",
@@ -67,6 +80,14 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
   const markdown = await exportResponse.text();
   assert.match(markdown, /# 杭州之旅/);
   assert.match(markdown, /目的地：杭州/);
+
+  const invalidStatus = await fetch(`${baseUrl}/api/trips/${trip.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ status: "deleted", expectedVersion: trip.version })
+  });
+  assert.equal(invalidStatus.status, 400);
+  assert.equal((await invalidStatus.json()).code, "VALIDATION_ERROR");
 
   const updated = await jsonRequest(`${baseUrl}/api/trips/${trip.id}`, {
     method: "PATCH",

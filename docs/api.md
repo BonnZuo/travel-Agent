@@ -12,7 +12,7 @@ npm start
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/health` | 健康检查，并报告 AI 是否已配置 |
+| `GET` | `/api/health` | 健康检查，并报告数据库与 AI 配置状态 |
 | `GET` | `/api/trips` | 获取全部旅行，按最近更新排序 |
 | `POST` | `/api/trips/parse` | 通过 AI 提取自然语言旅行需求 |
 | `POST` | `/api/trips` | 创建旅行草稿 |
@@ -90,6 +90,8 @@ curl -X POST http://localhost:3000/api/trips/parse \
 ## 保存修改
 
 `PATCH /api/trips/:tripId` 接受旅行对象的部分字段。服务端会合并嵌套的 `travelers` 与 `preferences`，递增 `version`，并更新 `updatedAt`。修改请求可携带当前对象的 `expectedVersion`；若数据库已出现更新，服务端返回 `409` 和 `VERSION_CONFLICT`，避免旧页面覆盖新数据。生成、重规划、锁定与相册写操作也支持同样的版本检查，前端默认会携带该字段。
+
+创建与更新会校验目的地、日期、天数、人数、币种、节奏、状态和文本长度。无效输入返回 `400` 与 `VALIDATION_ERROR`；未知服务端异常仅返回通用 `500`，详细错误只记录在服务端，避免向浏览器泄露数据库或文件路径。
 
 前端“我的行程”使用 `GET /api/trips` 加载全部旅行，并通过更新 `status` 在 `draft`、`ready` 与 `archived` 之间切换。归档不会删除行程或照片。
 

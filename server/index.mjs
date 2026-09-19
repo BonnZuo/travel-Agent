@@ -133,6 +133,7 @@ function allowCors(request, response) {
 function badRequest(message) {
   const error = new Error(message);
   error.status = 400;
+  error.code = "VALIDATION_ERROR";
   return error;
 }
 
@@ -159,12 +160,13 @@ function calculateEndDate(startDate, durationDays) {
   if (!startDate) return undefined;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw badRequest("startDate must use YYYY-MM-DD");
   const date = new Date(`${startDate}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) throw badRequest("startDate is invalid");
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== startDate) throw badRequest("startDate is invalid");
   date.setUTCDate(date.getUTCDate() + durationDays - 1);
   return date.toISOString().slice(0, 10);
 }
 
 function normalizeTrip(input, existing = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw badRequest("trip payload must be an object");
   const merged = {
     ...existing,
     ...input,
@@ -172,29 +174,52 @@ function normalizeTrip(input, existing = {}) {
     preferences: { ...(existing.preferences ?? {}), ...(input.preferences ?? {}) }
   };
   const destinations = merged.destinations;
-  if (!Array.isArray(destinations) || destinations.length === 0 || !destinations.every((item) => typeof item === "string" && item.trim())) throw badRequest("destinations must contain at least one city");
+  if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 8 || !destinations.every((item) => typeof item === "string" && item.trim() && item.trim().length <= 100)) throw badRequest("destinations must contain 1 to 8 valid places");
   if (!Number.isInteger(merged.durationDays) || merged.durationDays < 1 || merged.durationDays > 30) throw badRequest("durationDays must be an integer between 1 and 30");
   if (!Number.isInteger(merged.travelers?.count) || merged.travelers.count < 1 || merged.travelers.count > 20) throw badRequest("travelers.count must be an integer between 1 and 20");
-  if (!merged.originalPrompt?.trim()) throw badRequest("originalPrompt is required");
+  if (typeof merged.originalPrompt !== "string" || !merged.originalPrompt.trim() || merged.originalPrompt.length > 5000) throw badRequest("originalPrompt must be 1 to 5000 characters");
+  if (merged.origin !== undefined && (typeof merged.origin !== "string" || merged.origin.length > 120)) throw badRequest("origin must be at most 120 characters");
+  if (merged.travelTiming !== undefined && (typeof merged.travelTiming !== "string" || merged.travelTiming.length > 120)) throw badRequest("travelTiming must be at most 120 characters");
+  if (merged.title !== undefined && (typeof merged.title !== "string" || !merged.title.trim() || merged.title.length > 160)) throw badRequest("title must be 1 to 160 characters");
+  const status = merged.status ?? "draft";
+  if (!["draft", "planning", "ready", "archived"].includes(status)) throw badRequest("status is invalid");
+  if (merged.travelers.tripType !== undefined && !["solo", "couple", "friends", "family", "business"].includes(merged.travelers.tripType)) throw badRequest("travelers.tripType is invalid");
   const preferences = {
     interests: [], pace: "balanced", avoid: [], constraints: [], ...merged.preferences
   };
   if (!['relaxed', 'balanced', 'packed'].includes(preferences.pace)) throw badRequest("preferences.pace is invalid");
+  for (const key of ["interests", "avoid", "constraints", "accommodationPreferences", "foodPreferences"]) {
+    if (preferences[key] !== undefined && (!Array.isArray(preferences[key]) || preferences[key].length > 30 || !preferences[key].every((item) => typeof item === "string" && item.length <= 160))) throw badRequest(`preferences.${key} is invalid`);
+  }
+  if (merged.budget != null) {
+    if (!merged.budget || typeof merged.budget !== "object" || !Number.isFinite(merged.budget.perPerson) || merged.budget.perPerson < 0) throw badRequest("budget.perPerson must be a non-negative number");
+    if (!["CNY", "JPY", "USD", "EUR", "GBP"].includes(merged.budget.currency)) throw badRequest("budget.currency is invalid");
+  }
+  if (input.itinerary !== undefined && !Array.isArray(input.itinerary)) throw badRequest("itinerary must be an array");
   if (merged.startDate !== undefined && typeof merged.startDate !== "string") throw badRequest("startDate must be a string");
   const startDate = merged.startDate?.trim() || undefined;
   return {
-    ...merged,
-    id: merged.id ?? randomUUID(),
+    id: existing.id ?? randomUUID(),
+    userId: existing.userId,
     version: existing.id ? (existing.version + 1) : 1,
-    status: merged.status ?? "draft",
+    status,
     title: merged.title?.trim() || `${destinations.join(" · ")}之旅`,
     originalPrompt: merged.originalPrompt.trim(),
+    origin: merged.origin?.trim() || undefined,
     destinations: destinations.map((item) => item.trim()),
     travelTiming: merged.travelTiming?.trim() || undefined,
     startDate,
     endDate: calculateEndDate(startDate, merged.durationDays),
+    durationDays: merged.durationDays,
+    travelers: merged.travelers,
+    budget: merged.budget || undefined,
+    budgetEstimate: existing.budgetEstimate,
+    preferences,
     itinerary: Array.isArray(merged.itinerary) ? merged.itinerary : [],
-    preferences
+    album: existing.album,
+    checklist: existing.checklist,
+    recommendations: existing.recommendations,
+    createdAt: existing.createdAt
   };
 }
 
@@ -219,7 +244,7 @@ const server = createServer(async (request, response) => {
       return response.end();
     }
     const path = new URL(request.url, `http://${request.headers.host}`).pathname;
-    if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok", aiConfigured: Boolean(process.env.DEEPSEEK_API_KEY) });
+    if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok", database: db.health() ? "ok" : "unavailable", aiConfigured: Boolean(process.env.DEEPSEEK_API_KEY) });
     if (request.method === "GET" && path.startsWith("/uploads/")) return serveUpload(path, response);
     if (request.method === "GET" && path === "/api/trips") return send(response, 200, { trips: db.list() });
     const sharedMatch = path.match(/^\/api\/shared\/([\w-]+)$/);
@@ -232,6 +257,8 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "POST" && path === "/api/trips/parse") {
       const { prompt, currentIntent } = await readJson(request);
+      if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 5000) throw badRequest("prompt must be 1 to 5000 characters");
+      if (currentIntent !== undefined && (!currentIntent || typeof currentIntent !== "object" || Array.isArray(currentIntent))) throw badRequest("currentIntent must be an object");
       const assessment = await extractTripIntent(prompt, currentIntent);
       return send(response, 200, assessment);
     }
@@ -438,7 +465,9 @@ const server = createServer(async (request, response) => {
     if (path.startsWith("/api/")) return send(response, 404, { error: "API route not found" });
     return serveStatic(request, response);
   } catch (error) {
-    return send(response, error.status ?? 500, { error: error.message || "Internal server error", ...(error.code ? { code: error.code } : {}) });
+    const status = error.status ?? 500;
+    if (!error.status) console.error(error);
+    return send(response, status, { error: error.status ? (error.message || "Request failed") : "Internal server error", ...(error.code ? { code: error.code } : {}) });
   }
 });
 
