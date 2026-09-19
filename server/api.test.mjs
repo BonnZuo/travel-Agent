@@ -18,7 +18,7 @@ async function startTestServer(directory) {
     const timeout = setTimeout(() => reject(new Error("test server did not start")), 5000);
     child.once("error", reject);
     child.stdout.on("data", (chunk) => {
-      const match = String(chunk).match(/localhost:(\d+)/);
+      const match = String(chunk).match(/(?:localhost|127\.0\.0\.1):(\d+)/);
       if (!match) return;
       clearTimeout(timeout);
       resolve(Number(match[1]));
@@ -42,6 +42,14 @@ test("照片可上传、读取并删除，元数据与文件保持一致", async
     await new Promise((resolve) => child.once("exit", resolve));
     await rm(directory, { recursive: true, force: true });
   });
+
+  assert.equal((await fetch(`${baseUrl}/.env.local`)).status, 404);
+  assert.equal((await fetch(`${baseUrl}/server/index.mjs`)).status, 404);
+  const rejectedOrigin = await fetch(`${baseUrl}/api/health`, { headers: { origin: "https://example.com" } });
+  assert.equal(rejectedOrigin.status, 403);
+  const fileOrigin = await fetch(`${baseUrl}/api/health`, { headers: { origin: "null" } });
+  assert.equal(fileOrigin.status, 200);
+  assert.equal(fileOrigin.headers.get("access-control-allow-origin"), "null");
 
   const { trip } = await jsonRequest(`${baseUrl}/api/trips`, {
     method: "POST",

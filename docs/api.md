@@ -6,7 +6,9 @@
 npm start
 ```
 
-服务默认监听 `http://localhost:3000`，同时托管原型网页与 API。数据库文件在 `data/travel-agent.db`。
+服务默认仅监听本机 `http://127.0.0.1:3000`（`http://localhost:3000` 同样可访问），同时托管原型网页与 API。数据库文件在 `data/travel-agent.db`。容器或局域网部署可通过 `TRAVEL_AGENT_HOST=0.0.0.0` 显式开放监听地址。
+
+静态服务器只公开 `index.html` 与 `Photos/` 图片，不允许下载 `.env.local`、服务端代码、数据库、文档或 Schema。跨域请求只接受同源、本机来源和直接打开文件时的 `null` Origin，避免外部网页读取本地旅行数据。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|

@@ -12,6 +12,8 @@
 
 项目使用 Node.js 内置 HTTP 与 SQLite 能力，无需安装依赖。运行 `npm start` 后，在 `http://localhost:3000` 打开网页；API 与 SQLite 数据库会一同启动。接口说明见 [docs/api.md](docs/api.md)。
 
+服务默认只监听 `127.0.0.1`，且只对外提供首页与 `Photos/` 图片；`.env.local`、源代码和 SQLite 数据不会被静态下载。需要容器或局域网访问时，使用 `TRAVEL_AGENT_HOST` 显式配置监听地址，并在正式部署前增加 HTTPS 与身份认证。
+
 ## AI 行程生成
 
 将 `.env.example` 复制为 `.env`，设置 `DEEPSEEK_API_KEY` 后，服务端会使用 DeepSeek Responses API 先识别自然语言中的人数、天数、预算、目的地、模糊时间与偏好，再生成结构化行程。确认页支持直接编辑或继续补充需求；目的地、天数和人数补齐前不会创建数据库草稿。密钥只在服务端环境变量中使用；具体接口与输出规则见 [docs/api.md](docs/api.md)。

@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
@@ -16,15 +16,16 @@ const uploadsRoot = process.env.UPLOADS_PATH
   : join(root, "data", "uploads");
 const db = openDatabase(databasePath);
 const port = Number(process.env.PORT ?? 3000);
+const host = process.env.TRAVEL_AGENT_HOST || "127.0.0.1";
 const MIME_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml" };
 
 function send(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
 }
 
 function sendText(response, status, body, contentType = "text/plain; charset=utf-8", headers = {}) {
-  response.writeHead(status, { "content-type": contentType, "access-control-allow-origin": "*", ...headers });
+  response.writeHead(status, { "content-type": contentType, ...headers });
   response.end(body);
 }
 
@@ -106,9 +107,27 @@ async function readJson(request, maxBytes = 1_000_000) {
 async function serveUpload(path, response) {
   const safePath = normalize(path.replace(/^\/uploads\//, "")).replace(/^([/\\])+/, "");
   const target = join(uploadsRoot, safePath);
-  if (!target.startsWith(`${uploadsRoot}/`) || !existsSync(target) || !(await stat(target)).isFile()) return send(response, 404, { error: "Photo not found" });
+  if (!isWithin(uploadsRoot, target) || !existsSync(target) || !(await stat(target)).isFile()) return send(response, 404, { error: "Photo not found" });
   response.writeHead(200, { "content-type": MIME_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream", "cache-control": "public, max-age=86400" });
   response.end(await readFile(target));
+}
+
+function isWithin(parent, target) {
+  const childPath = relative(parent, target);
+  return childPath === "" || (!childPath.startsWith("..") && !isAbsolute(childPath));
+}
+
+function allowCors(request, response) {
+  const origin = request.headers.origin;
+  if (!origin) return true;
+  let originHost;
+  try { originHost = new URL(origin).host; } catch { originHost = ""; }
+  const localOrigin = origin === "null" || /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(originHost);
+  const sameOrigin = originHost && originHost === request.headers.host;
+  if (!localOrigin && !sameOrigin) return false;
+  response.setHeader("access-control-allow-origin", origin);
+  response.setHeader("vary", "Origin");
+  return true;
 }
 
 function badRequest(message) {
@@ -180,18 +199,23 @@ function normalizeTrip(input, existing = {}) {
 }
 
 async function serveStatic(request, response) {
-  const requestPath = request.url === "/" ? "/index.html" : request.url.split("?")[0];
+  const requestPath = new URL(request.url, `http://${request.headers.host}`).pathname === "/" ? "/index.html" : new URL(request.url, `http://${request.headers.host}`).pathname;
   const safePath = normalize(requestPath).replace(/^([/\\])+/, "");
+  const allowedPhoto = safePath.startsWith("Photos/") && [".jpg", ".jpeg", ".png", ".webp"].includes(extname(safePath).toLowerCase());
+  if (safePath !== "index.html" && !allowedPhoto) return send(response, 404, { error: "Not found" });
   const target = join(root, safePath);
-  if (!target.startsWith(root) || !existsSync(target) || !(await stat(target)).isFile()) return send(response, 404, { error: "Not found" });
-  response.writeHead(200, { "content-type": MIME_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream" });
+  if (!isWithin(root, target) || !existsSync(target) || !(await stat(target)).isFile()) return send(response, 404, { error: "Not found" });
+  response.writeHead(200, { "content-type": MIME_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream", "cache-control": allowedPhoto ? "public, max-age=86400" : "no-cache" });
   response.end(await readFile(target));
 }
 
 const server = createServer(async (request, response) => {
   try {
+    response.setHeader("x-content-type-options", "nosniff");
+    response.setHeader("referrer-policy", "same-origin");
+    if (!allowCors(request, response)) return send(response, 403, { error: "Origin not allowed" });
     if (request.method === "OPTIONS") {
-      response.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS", "access-control-allow-headers": "content-type" });
+      response.writeHead(204, { "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS", "access-control-allow-headers": "content-type" });
       return response.end();
     }
     const path = new URL(request.url, `http://${request.headers.host}`).pathname;
@@ -310,7 +334,7 @@ const server = createServer(async (request, response) => {
       const photos = existing.album.photos.filter((item) => item.id !== photo.id);
       const album = { ...existing.album, photos, coverPhotoId: existing.album.coverPhotoId === photo.id ? photos[0]?.id : existing.album.coverPhotoId, updatedAt: new Date().toISOString() };
       const trip = db.save({ ...existing, album, version: existing.version + 1 });
-      if (target.startsWith(`${uploadsRoot}/`)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") console.warn(`Unable to remove photo file ${target}: ${error.message}`); });
+      if (isWithin(uploadsRoot, target)) await unlink(target).catch((error) => { if (error.code !== "ENOENT") console.warn(`Unable to remove photo file ${target}: ${error.message}`); });
       return send(response, 200, { trip, album });
     }
     if (request.method === "GET" && checklistMatch) {
@@ -418,7 +442,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => console.log(`Travel Agent is running at http://localhost:${server.address().port}`));
+server.listen(port, host, () => console.log(`Travel Agent is running at http://${host}:${server.address().port}`));
 let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
