@@ -1,14 +1,17 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, extname, join, normalize } from "node:path";
+import { dirname, extname, isAbsolute, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
-import { extractTripIntent, generateItinerary } from "./planner.mjs";
+import { extractTripIntent, generateItinerary, reviseItinerary } from "./planner.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const db = openDatabase(join(root, "data", "travel-agent.db"));
+const databasePath = process.env.DATABASE_PATH
+  ? (isAbsolute(process.env.DATABASE_PATH) ? process.env.DATABASE_PATH : resolve(root, process.env.DATABASE_PATH))
+  : join(root, "data", "travel-agent.db");
+const db = openDatabase(databasePath);
 const port = Number(process.env.PORT ?? 3000);
 const MIME_TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml" };
 
@@ -101,11 +104,46 @@ const server = createServer(async (request, response) => {
     }
     const match = path.match(/^\/api\/trips\/([\w-]+)$/);
     const generateMatch = path.match(/^\/api\/trips\/([\w-]+)\/generate$/);
+    const revisionsMatch = path.match(/^\/api\/trips\/([\w-]+)\/revisions$/);
+    const locksMatch = path.match(/^\/api\/trips\/([\w-]+)\/locks$/);
     if (request.method === "POST" && generateMatch) {
       const existing = db.find(generateMatch[1]);
       if (!existing) return send(response, 404, { error: "Trip not found" });
       const generated = await generateItinerary(existing);
       const trip = db.save({ ...existing, ...generated, version: existing.version + 1, status: "ready" });
+      return send(response, 200, { trip });
+    }
+    if (request.method === "GET" && revisionsMatch) {
+      const existing = db.find(revisionsMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      return send(response, 200, { revisions: db.listRevisions(existing.id) });
+    }
+    if (request.method === "POST" && revisionsMatch) {
+      const existing = db.find(revisionsMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      const revised = await reviseItinerary(existing, await readJson(request));
+      const trip = db.save({ ...existing, title: revised.title, itinerary: revised.itinerary, version: revised.revision.version, status: "ready" });
+      const revision = db.saveRevision(revised.revision);
+      return send(response, 200, { trip, revision });
+    }
+    if (request.method === "PATCH" && locksMatch) {
+      const existing = db.find(locksMatch[1]);
+      if (!existing) return send(response, 404, { error: "Trip not found" });
+      const { dayNumber, activityId, locked } = await readJson(request);
+      if (!Number.isInteger(dayNumber) || typeof locked !== "boolean") throw badRequest("dayNumber and locked are required");
+      let targetFound = false;
+      const itinerary = existing.itinerary.map((day) => {
+        if (day.dayNumber !== dayNumber) return day;
+        if (!activityId) { targetFound = true; return { ...day, locked }; }
+        const activities = day.activities.map((activity) => {
+          if (activity.id !== activityId) return activity;
+          targetFound = true;
+          return { ...activity, locked };
+        });
+        return { ...day, activities };
+      });
+      if (!targetFound) return send(response, 404, { error: "Day or activity not found" });
+      const trip = db.save({ ...existing, itinerary, version: existing.version + 1 });
       return send(response, 200, { trip });
     }
     if (request.method === "GET" && match) {

@@ -33,6 +33,20 @@ export function openDatabase(filePath) {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_trips_updated_at ON trips(updated_at DESC);
+    CREATE TABLE IF NOT EXISTS trip_revisions (
+      id TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL,
+      instruction TEXT NOT NULL,
+      scope TEXT NOT NULL CHECK(scope IN ('trip', 'days')),
+      affected_day_numbers_json TEXT NOT NULL,
+      change_summary_json TEXT NOT NULL,
+      budget_delta REAL NOT NULL DEFAULT 0,
+      previous_version INTEGER NOT NULL,
+      version INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(trip_id) REFERENCES trips(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_trip_revisions_trip_id ON trip_revisions(trip_id, created_at DESC);
   `);
   try {
     db.exec("ALTER TABLE trips ADD COLUMN travel_timing TEXT");
@@ -77,6 +91,25 @@ export function openDatabase(filePath) {
       preferences_json = excluded.preferences_json, itinerary_json = excluded.itinerary_json,
       album_json = excluded.album_json, updated_at = excluded.updated_at
   `);
+  const writeRevision = db.prepare(`
+    INSERT INTO trip_revisions (
+      id, trip_id, instruction, scope, affected_day_numbers_json, change_summary_json,
+      budget_delta, previous_version, version, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const toRevision = (row) => row && ({
+    id: row.id,
+    tripId: row.trip_id,
+    instruction: row.instruction,
+    scope: row.scope,
+    affectedDayNumbers: parse(row.affected_day_numbers_json) || [],
+    changeSummary: parse(row.change_summary_json) || [],
+    budgetDelta: row.budget_delta,
+    previousVersion: row.previous_version,
+    version: row.version,
+    createdAt: row.created_at
+  });
 
   function save(trip) {
     const updatedTrip = { ...trip, updatedAt: now() };
@@ -102,6 +135,17 @@ export function openDatabase(filePath) {
       return save({ ...trip, createdAt: now(), updatedAt: now() });
     },
     save,
+    saveRevision(revision) {
+      writeRevision.run(
+        revision.id, revision.tripId, revision.instruction, revision.scope,
+        json(revision.affectedDayNumbers), json(revision.changeSummary), revision.budgetDelta || 0,
+        revision.previousVersion, revision.version, revision.createdAt
+      );
+      return revision;
+    },
+    listRevisions(tripId) {
+      return db.prepare("SELECT * FROM trip_revisions WHERE trip_id = ? ORDER BY created_at DESC").all(tripId).map(toRevision);
+    },
     close() { db.close(); }
   };
 }

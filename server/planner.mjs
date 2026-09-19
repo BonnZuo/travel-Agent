@@ -4,9 +4,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const schemasDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "schemas");
-const [itinerarySchema, tripIntentSchema] = await Promise.all([
+const [itinerarySchema, tripIntentSchema, itineraryRevisionSchema] = await Promise.all([
   readFile(join(schemasDirectory, "itinerary-generation.schema.json"), "utf8").then(JSON.parse),
-  readFile(join(schemasDirectory, "trip-intent.schema.json"), "utf8").then(JSON.parse)
+  readFile(join(schemasDirectory, "trip-intent.schema.json"), "utf8").then(JSON.parse),
+  readFile(join(schemasDirectory, "itinerary-revision.schema.json"), "utf8").then(JSON.parse)
 ]);
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/responses";
 
@@ -113,6 +114,43 @@ function validatePlan(plan, durationDays) {
   return plan;
 }
 
+function dateForDay(startDate, dayNumber) {
+  if (!startDate) return `第 ${dayNumber} 天`;
+  const date = new Date(`${startDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + dayNumber - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function materializeDay(day, trip, existingDay) {
+  return {
+    ...day,
+    id: existingDay?.id || randomUUID(),
+    date: existingDay?.date || dateForDay(trip.startDate, day.dayNumber),
+    activities: day.activities.map((activity) => ({ ...activity, id: randomUUID(), locked: false })),
+    locked: false
+  };
+}
+
+function contentSignature(day) {
+  return JSON.stringify({
+    city: day.city,
+    theme: day.theme,
+    activities: day.activities.map(({ id, locked, ...activity }) => activity),
+    estimatedBudget: day.estimatedBudget,
+    tip: day.tip
+  });
+}
+
+function preserveLockedActivities(existingDay, generatedDay) {
+  const activities = [...generatedDay.activities];
+  for (const lockedActivity of existingDay.activities.filter((activity) => activity.locked)) {
+    const sameTitleIndex = activities.findIndex((activity) => activity.title.trim().toLowerCase() === lockedActivity.title.trim().toLowerCase());
+    if (sameTitleIndex >= 0) activities.splice(sameTitleIndex, 1, lockedActivity);
+    else activities.unshift(lockedActivity);
+  }
+  return { ...generatedDay, activities };
+}
+
 async function deepSeekJson({ name, schema, instructions, input }) {
   if (!process.env.DEEPSEEK_API_KEY) throw generationError("未配置 DEEPSEEK_API_KEY，无法调用 AI", 503);
   let apiResponse;
@@ -164,12 +202,71 @@ export async function generateItinerary(trip) {
   validatePlan(plan, trip.durationDays);
   return {
     title: plan.title,
-    itinerary: plan.itinerary.map((day) => ({
-      ...day,
+    itinerary: plan.itinerary.map((day) => materializeDay(day, trip))
+  };
+}
+
+export async function reviseItinerary(trip, request) {
+  const instruction = cleanText(request?.instruction);
+  if (!instruction) throw generationError("修改要求不能为空", 400);
+  if (instruction.length > 1000) throw generationError("修改要求不能超过 1000 个字符", 400);
+  const scope = request?.scope === "trip" ? "trip" : request?.scope === "days" ? "days" : undefined;
+  if (!scope) throw generationError("scope 必须是 trip 或 days", 400);
+  if (!Array.isArray(trip.itinerary) || trip.itinerary.length === 0) throw generationError("当前旅行尚未生成行程", 409);
+  const allDayNumbers = trip.itinerary.map((day) => day.dayNumber);
+  const requestedDays = scope === "trip"
+    ? allDayNumbers
+    : [...new Set((request.affectedDayNumbers || []).filter((dayNumber) => Number.isInteger(dayNumber) && allDayNumbers.includes(dayNumber)))].sort((a, b) => a - b);
+  if (scope === "days" && requestedDays.length === 0) throw generationError("局部调整至少需要选择一天", 400);
+  const editableDays = requestedDays.filter((dayNumber) => !trip.itinerary.find((day) => day.dayNumber === dayNumber)?.locked);
+  if (editableDays.length === 0) throw generationError("选择的日期均已锁定，请先解锁后再调整", 409);
+
+  const plan = await deepSeekJson({
+    name: "travel_itinerary_revision",
+    schema: itineraryRevisionSchema,
+    instructions: "你是旅行行程修改助手。根据 instruction 修改已有完整行程，并返回修改后的完整行程。所有未列入 editableDayNumbers 的日期必须原样保留；locked:true 的日期或活动绝对不能更改、删除或移动。只处理用户明确要求的修改，不擅自改变人数、预算、目的地或旅行偏好。每天保持合理地理顺序和 2 至 4 个主要活动，不编造实时价格、营业时间、天气或签证事实。changeSummary 用 1 至 6 条中文短句说明实际修改。输出必须严格符合 JSON Schema。",
+    input: JSON.stringify({
+      instruction,
+      scope,
+      editableDayNumbers: editableDays,
+      trip: {
+        title: trip.title,
+        destinations: trip.destinations,
+        durationDays: trip.durationDays,
+        travelers: trip.travelers,
+        budget: trip.budget,
+        preferences: trip.preferences,
+        itinerary: trip.itinerary
+      }
+    })
+  });
+  validatePlan(plan, trip.durationDays);
+  const generatedByDay = new Map(plan.itinerary.map((day) => [day.dayNumber, day]));
+  const itinerary = trip.itinerary.map((existingDay) => {
+    if (!editableDays.includes(existingDay.dayNumber) || existingDay.locked) return existingDay;
+    const generated = generatedByDay.get(existingDay.dayNumber);
+    const materialized = materializeDay(generated, trip, existingDay);
+    return preserveLockedActivities(existingDay, materialized);
+  });
+  const affectedDayNumbers = itinerary
+    .filter((day, index) => contentSignature(day) !== contentSignature(trip.itinerary[index]))
+    .map((day) => day.dayNumber);
+  const previousBudget = trip.itinerary.reduce((sum, day) => sum + Number(day.estimatedBudget?.max || 0), 0);
+  const revisedBudget = itinerary.reduce((sum, day) => sum + Number(day.estimatedBudget?.max || 0), 0);
+  return {
+    title: plan.title || trip.title,
+    itinerary,
+    revision: {
       id: randomUUID(),
-      date: trip.startDate || `第 ${day.dayNumber} 天`,
-      activities: day.activities.map((activity) => ({ ...activity, id: randomUUID(), locked: false })),
-      locked: false
-    }))
+      tripId: trip.id,
+      instruction,
+      scope,
+      affectedDayNumbers,
+      changeSummary: cleanList(plan.changeSummary),
+      budgetDelta: revisedBudget - previousBudget,
+      previousVersion: trip.version,
+      version: trip.version + 1,
+      createdAt: new Date().toISOString()
+    }
   };
 }

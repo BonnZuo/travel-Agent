@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractTripIntent } from "./planner.mjs";
+import { extractTripIntent, reviseItinerary } from "./planner.mjs";
 
 const baseIntent = (overrides = {}) => ({
   origin: "济南",
@@ -76,5 +76,41 @@ test("补充需求只更新用户明确修改的人数", { concurrency: false },
     assert.deepEqual(result.intent.destinations, ["新疆"]);
     assert.equal(result.intent.durationDays, 7);
     assert.deepEqual(result.changedFields, ["travelers"]);
+  });
+});
+
+test("局部重规划只修改指定日期并保留锁定活动", { concurrency: false }, async () => {
+  const money = { min: 100, max: 200, currency: "CNY" };
+  const activity = (id, title, locked = false) => ({ id, title, category: "attraction", timeSlot: "morning", durationMinutes: 120, reason: "测试", notes: [], reservationRequired: false, locked });
+  const trip = {
+    id: "trip-1",
+    version: 2,
+    title: "新疆之旅",
+    destinations: ["新疆"],
+    durationDays: 2,
+    travelers: { count: 2, tripType: "friends" },
+    preferences: { interests: [], pace: "balanced", avoid: [], constraints: [] },
+    itinerary: [
+      { id: "day-1", dayNumber: 1, date: "第 1 天", city: "乌鲁木齐", theme: "旧主题一", activities: [activity("a-1", "旧活动一")], estimatedBudget: money, tip: "旧提示", locked: false },
+      { id: "day-2", dayNumber: 2, date: "第 2 天", city: "乌鲁木齐", theme: "旧主题二", activities: [activity("a-2", "必须保留", true), activity("a-3", "可替换")], estimatedBudget: money, tip: "旧提示", locked: false }
+    ]
+  };
+  const revisedByModel = {
+    title: "新疆轻松之旅",
+    changeSummary: ["第二天减少活动"],
+    itinerary: [
+      { dayNumber: 1, city: "吐鲁番", theme: "模型不应改动", activities: [{ title: "错误改动", category: "nature", timeSlot: "morning", durationMinutes: 60, reason: "测试", notes: [], reservationRequired: false }], estimatedBudget: money, tip: "模型改动" },
+      { dayNumber: 2, city: "乌鲁木齐", theme: "轻松漫步", activities: [{ title: "新活动", category: "nature", timeSlot: "afternoon", durationMinutes: 90, reason: "更轻松", notes: [], reservationRequired: false }], estimatedBudget: { min: 80, max: 150, currency: "CNY" }, tip: "放慢节奏" }
+    ]
+  };
+  await withMockedDeepSeek(revisedByModel, async () => {
+    const result = await reviseItinerary(trip, { instruction: "第二天轻松一点", scope: "days", affectedDayNumbers: [2], preserveLockedItems: true });
+    assert.deepEqual(result.itinerary[0], trip.itinerary[0]);
+    assert.equal(result.itinerary[1].theme, "轻松漫步");
+    assert.equal(result.itinerary[1].activities[0].id, "a-2");
+    assert.equal(result.itinerary[1].activities[0].locked, true);
+    assert.deepEqual(result.revision.affectedDayNumbers, [2]);
+    assert.equal(result.revision.previousVersion, 2);
+    assert.equal(result.revision.version, 3);
   });
 });

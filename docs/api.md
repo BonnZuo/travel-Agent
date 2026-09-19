@@ -17,6 +17,9 @@ npm start
 | `GET` | `/api/trips/:tripId` | 获取一段旅行 |
 | `PATCH` | `/api/trips/:tripId` | 保存或更新旅行 |
 | `POST` | `/api/trips/:tripId/generate` | 通过 AI 生成并保存结构化行程 |
+| `GET` | `/api/trips/:tripId/revisions` | 获取行程修改历史 |
+| `POST` | `/api/trips/:tripId/revisions` | AI 局部或整段重规划 |
+| `PATCH` | `/api/trips/:tripId/locks` | 锁定或解锁日期、活动 |
 
 ## 创建旅行
 
@@ -90,3 +93,32 @@ npm start
 ```
 
 `POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。
+
+## 局部重规划与锁定
+
+锁定某一天：
+
+```bash
+curl -X PATCH http://localhost:3000/api/trips/TRIP_ID/locks \
+  -H 'content-type: application/json' \
+  -d '{"dayNumber":3,"locked":true}'
+```
+
+锁定某个活动时额外传入 `activityId`。服务端会在重规划后强制恢复所有锁定内容，不依赖模型自行遵守。
+
+局部调整：
+
+```bash
+curl -X POST http://localhost:3000/api/trips/TRIP_ID/revisions \
+  -H 'content-type: application/json' \
+  -d '{
+    "instruction":"第三天减少一个景点，安排更多休息时间",
+    "scope":"days",
+    "affectedDayNumbers":[3],
+    "preserveLockedItems":true
+  }'
+```
+
+`scope: "days"` 只允许修改指定日期；`scope: "trip"` 可调整整个行程。响应包含保存后的 `trip`，以及受影响日期、修改摘要、预算变化和版本号组成的 `revision`。
+
+测试或部署时可用 `DATABASE_PATH` 覆盖默认的 `data/travel-agent.db`。

@@ -182,3 +182,16 @@ export interface TripRevisionRequest {
   affectedDayNumbers?: number[];
   preserveLockedItems: boolean;
 }
+
+export interface TripRevisionResult {
+  id: string;
+  tripId: string;
+  instruction: string;
+  scope: "trip" | "days";
+  affectedDayNumbers: number[];
+  changeSummary: string[];
+  budgetDelta: number;
+  previousVersion: number;
+  version: number;
+  createdAt: string;
+}

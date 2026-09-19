@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "changeSummary", "itinerary"],
+  "properties": {
+    "title": { "type": "string" },
+    "changeSummary": { "type": "array", "minItems": 1, "maxItems": 6, "items": { "type": "string" } },
+    "itinerary": { "type": "array", "items": { "$ref": "#/$defs/day" } }
+  },
+  "$defs": {
+    "moneyRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "currency"],
+      "properties": {
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "currency": { "type": "string", "enum": ["CNY", "JPY", "USD", "EUR", "GBP"] }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "category", "timeSlot", "durationMinutes", "reason", "notes", "reservationRequired"],
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["transport", "accommodation", "attraction", "food", "shopping", "nature", "culture", "experience", "free_time"] },
+        "timeSlot": { "type": "string", "enum": ["morning", "afternoon", "evening", "all_day"] },
+        "durationMinutes": { "type": "integer" },
+        "reason": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "reservationRequired": { "type": "boolean" }
+      }
+    },
+    "day": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dayNumber", "city", "theme", "activities", "estimatedBudget", "tip"],
+      "properties": {
+        "dayNumber": { "type": "integer" },
+        "city": { "type": "string" },
+        "theme": { "type": "string" },
+        "activities": { "type": "array", "items": { "$ref": "#/$defs/activity" } },
+        "estimatedBudget": { "$ref": "#/$defs/moneyRange" },
+        "tip": { "type": "string" }
+      }
+    }
+  }
+}
