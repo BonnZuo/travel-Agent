@@ -16,6 +16,7 @@ Trip
 ├─ travelers             出行人群与无障碍需求
 ├─ budget                人均预算与分类预估
 ├─ preferences           兴趣、节奏、避雷项、限制条件
+├─ travelTiming          模糊旅行时间描述（如“十月”“国庆”）
 ├─ album                 本次旅行的图片记录与封面
 └─ itinerary[]
    └─ ItineraryDay
@@ -41,6 +42,8 @@ Trip
 ### 时间字段
 
 - 旅行日期使用 ISO `YYYY-MM-DD`。
+- `travelTiming` 保留用户给出的模糊时间描述；`startDate` 是用户可选的精确出发日期。
+- 设置 `startDate` 后，服务端依据 `durationDays` 自动计算 `endDate`。
 - 活动的具体开始时间可选，格式为 `HH:mm`。
 - 首期同时保留 `timeSlot`（上午、下午、晚上、全天），使没有准确营业时间时仍能生成合理行程。
 
@@ -83,6 +86,10 @@ Trip
   }
 }
 ```
+
+### 需求确认（未持久化）
+
+`POST /api/trips/parse` 返回 `TripIntentAssessment`，其中包含 `intent`、核心字段是否齐全的 `isReady`、`missingFields`、最多两条 `followUpQuestions` 和 `changedFields`。确认阶段只存在于当前浏览器会话；仅在核心字段齐全并点击生成时创建 `Trip`。
 
 ### 局部重规划
 

@@ -12,6 +12,7 @@ npm start
 |---|---|---|
 | `GET` | `/api/health` | 健康检查 |
 | `GET` | `/api/trips` | 获取全部旅行，按最近更新排序 |
+| `POST` | `/api/trips/parse` | 通过 AI 提取自然语言旅行需求 |
 | `POST` | `/api/trips` | 创建旅行草稿 |
 | `GET` | `/api/trips/:tripId` | 获取一段旅行 |
 | `PATCH` | `/api/trips/:tripId` | 保存或更新旅行 |
@@ -34,6 +35,41 @@ curl -X POST http://localhost:3000/api/trips \
 
 响应会以 `{ "trip": { ... } }` 返回创建后的完整旅行对象。
 
+## AI 识别旅行需求
+
+`POST /api/trips/parse` 会把原始自然语言交给 DeepSeek，并返回确认页使用的临时需求状态。前端不会用正则或默认人数猜测字段；例如“十月份从济南去新疆旅游，两个人，人均5000，大概7天行程”会被识别为 `travelers.count: 2`、`durationDays: 7` 和 `budget.perPerson: 5000`。
+
+```bash
+curl -X POST http://localhost:3000/api/trips/parse \
+  -H 'content-type: application/json' \
+  -d '{"prompt":"十月份从济南去新疆旅游，两个人，人均5000，大概7天行程"}'
+```
+
+响应格式：
+
+```json
+{
+  "intent": { "destinations": ["新疆"], "durationDays": 7, "travelers": { "count": 2 } },
+  "isReady": true,
+  "missingFields": [],
+  "followUpQuestions": [],
+  "changedFields": []
+}
+```
+
+当目的地、旅行天数或出行人数缺失时，`isReady` 为 `false`，`followUpQuestions` 最多返回两条 AI 追问。此时客户端仅在浏览器内保留确认状态，不会创建数据库旅行。
+
+补充需求时，传入当前确认的 `currentIntent`。AI 只覆盖本次文本中明确修改的字段，未提及字段保持不变：
+
+```json
+{
+  "prompt": "改成 3 个人，不要太赶",
+  "currentIntent": { "destinations": ["新疆"], "durationDays": 7, "travelers": { "count": 2 } }
+}
+```
+
+只有 `isReady` 为 `true` 且用户点击生成后，客户端才会将 `intent` 连同 `originalPrompt` 提交到 `POST /api/trips` 创建旅行草稿。
+
 ## 保存修改
 
 `PATCH /api/trips/:tripId` 接受旅行对象的部分字段。服务端会合并嵌套的 `travelers` 与 `preferences`，递增 `version`，并更新 `updatedAt`。
@@ -46,11 +82,11 @@ curl -X PATCH http://localhost:3000/api/trips/TRIP_ID \
 
 ## AI 生成行程
 
-先复制 `.env.example` 为 `.env`，在其中设置 `OPENAI_API_KEY`。密钥只在服务端读取，浏览器与数据库均不会收到该值。
+先复制 `.env.example` 为 `.env`，或在本机创建 `.env.local` 并在其中设置 `DEEPSEEK_API_KEY`。`.env.local` 优先用于本机覆盖配置；密钥只在服务端读取，浏览器与数据库均不会收到该值。
 
 ```bash
 cp .env.example .env
 npm start
 ```
 
-`POST /api/trips/:tripId/generate` 会调用 Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。若缺少 API Key，接口返回 `503`，不会伪造行程。
+`POST /api/trips/:tripId/generate` 会调用 DeepSeek Responses API，以 `schemas/itinerary-generation.schema.json` 约束模型输出，再为每个日期与活动补充本地 ID 并保存。需求识别使用 `schemas/trip-intent.schema.json`。若缺少 API Key，接口返回 `503`，不会伪造行程。

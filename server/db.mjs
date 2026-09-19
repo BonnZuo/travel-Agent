@@ -20,6 +20,7 @@ export function openDatabase(filePath) {
       original_prompt TEXT NOT NULL,
       origin TEXT,
       destinations_json TEXT NOT NULL,
+      travel_timing TEXT,
       start_date TEXT,
       end_date TEXT,
       duration_days INTEGER NOT NULL,
@@ -33,6 +34,11 @@ export function openDatabase(filePath) {
     );
     CREATE INDEX IF NOT EXISTS idx_trips_updated_at ON trips(updated_at DESC);
   `);
+  try {
+    db.exec("ALTER TABLE trips ADD COLUMN travel_timing TEXT");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) throw error;
+  }
 
   const toTrip = (row) => row && ({
     id: row.id,
@@ -43,6 +49,7 @@ export function openDatabase(filePath) {
     originalPrompt: row.original_prompt,
     origin: row.origin ?? undefined,
     destinations: parse(row.destinations_json),
+    travelTiming: row.travel_timing ?? undefined,
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,
     durationDays: row.duration_days,
@@ -57,14 +64,14 @@ export function openDatabase(filePath) {
 
   const write = db.prepare(`
     INSERT INTO trips (
-      id, user_id, version, status, title, original_prompt, origin, destinations_json,
+      id, user_id, version, status, title, original_prompt, origin, destinations_json, travel_timing,
       start_date, end_date, duration_days, travelers_json, budget_json, preferences_json,
       itinerary_json, album_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       user_id = excluded.user_id, version = excluded.version, status = excluded.status,
       title = excluded.title, original_prompt = excluded.original_prompt, origin = excluded.origin,
-      destinations_json = excluded.destinations_json, start_date = excluded.start_date,
+      destinations_json = excluded.destinations_json, travel_timing = excluded.travel_timing, start_date = excluded.start_date,
       end_date = excluded.end_date, duration_days = excluded.duration_days,
       travelers_json = excluded.travelers_json, budget_json = excluded.budget_json,
       preferences_json = excluded.preferences_json, itinerary_json = excluded.itinerary_json,
@@ -76,7 +83,7 @@ export function openDatabase(filePath) {
     write.run(
       updatedTrip.id, updatedTrip.userId ?? null, updatedTrip.version, updatedTrip.status,
       updatedTrip.title, updatedTrip.originalPrompt, updatedTrip.origin ?? null,
-      json(updatedTrip.destinations), updatedTrip.startDate ?? null, updatedTrip.endDate ?? null,
+      json(updatedTrip.destinations), updatedTrip.travelTiming ?? null, updatedTrip.startDate ?? null, updatedTrip.endDate ?? null,
       updatedTrip.durationDays, json(updatedTrip.travelers), json(updatedTrip.budget),
       json(updatedTrip.preferences), json(updatedTrip.itinerary), json(updatedTrip.album),
       updatedTrip.createdAt, updatedTrip.updatedAt

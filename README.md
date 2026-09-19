@@ -14,4 +14,4 @@
 
 ## AI 行程生成
 
-将 `.env.example` 复制为 `.env`，设置 `OPENAI_API_KEY` 后，服务端会使用 OpenAI Responses API 生成结构化行程。密钥只在服务端环境变量中使用；具体接口与输出规则见 [docs/api.md](docs/api.md)。
+将 `.env.example` 复制为 `.env`，设置 `DEEPSEEK_API_KEY` 后，服务端会使用 DeepSeek Responses API 先识别自然语言中的人数、天数、预算、目的地、模糊时间与偏好，再生成结构化行程。确认页支持直接编辑或继续补充需求；目的地、天数和人数补齐前不会创建数据库草稿。密钥只在服务端环境变量中使用；具体接口与输出规则见 [docs/api.md](docs/api.md)。

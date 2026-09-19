@@ -138,6 +138,8 @@ export interface Trip {
   originalPrompt: string;
   origin?: string;
   destinations: string[];
+  /** 用户输入的模糊出行时间，例如“十月”或“国庆假期”。 */
+  travelTiming?: string;
   startDate?: ISODate;
   endDate?: ISODate;
   durationDays: number;
@@ -148,6 +150,30 @@ export interface Trip {
   album?: TravelAlbum;
   createdAt: string;
   updatedAt: string;
+}
+
+export type MissingTripField = "destinations" | "durationDays" | "travelers";
+
+/** AI 解析后、创建旅行前在确认页中使用的临时旅行需求。 */
+export interface TripIntent {
+  originalPrompt: string;
+  origin?: string;
+  destinations: string[];
+  travelTiming?: string;
+  startDate?: ISODate;
+  endDate?: ISODate;
+  durationDays: number;
+  travelers: TravelerProfile;
+  budget?: Budget;
+  preferences: TripPreferences;
+}
+
+export interface TripIntentAssessment {
+  intent: TripIntent;
+  isReady: boolean;
+  missingFields: MissingTripField[];
+  followUpQuestions: string[];
+  changedFields: string[];
 }
 
 export interface TripRevisionRequest {

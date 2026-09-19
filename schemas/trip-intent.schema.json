@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["origin", "destinations", "travelTiming", "durationDays", "travelers", "budget", "preferences", "followUpQuestions"],
+  "properties": {
+    "origin": { "type": "string" },
+    "destinations": { "type": "array", "items": { "type": "string" } },
+    "travelTiming": { "type": "string" },
+    "durationDays": { "type": "integer" },
+    "travelers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "tripType"],
+      "properties": {
+        "count": { "type": "integer" },
+        "tripType": { "type": "string", "enum": ["solo", "couple", "friends", "family", "business"] }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["perPerson", "currency", "hasBudget"],
+      "properties": {
+        "perPerson": { "type": "number" },
+        "currency": { "type": "string", "enum": ["CNY", "JPY", "USD", "EUR", "GBP"] },
+        "hasBudget": { "type": "boolean" }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interests", "pace", "avoid", "constraints"],
+      "properties": {
+        "interests": { "type": "array", "items": { "type": "string" } },
+        "pace": { "type": "string", "enum": ["relaxed", "balanced", "packed"] },
+        "avoid": { "type": "array", "items": { "type": "string" } },
+        "constraints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "followUpQuestions": { "type": "array", "maxItems": 2, "items": { "type": "string" } }
+  }
+}

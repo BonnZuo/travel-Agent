@@ -5,7 +5,7 @@ import { dirname, extname, join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "./db.mjs";
-import { generateItinerary } from "./planner.mjs";
+import { extractTripIntent, generateItinerary } from "./planner.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const db = openDatabase(join(root, "data", "travel-agent.db"));
@@ -33,6 +33,15 @@ function badRequest(message) {
   return error;
 }
 
+function calculateEndDate(startDate, durationDays) {
+  if (!startDate) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw badRequest("startDate must use YYYY-MM-DD");
+  const date = new Date(`${startDate}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) throw badRequest("startDate is invalid");
+  date.setUTCDate(date.getUTCDate() + durationDays - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 function normalizeTrip(input, existing = {}) {
   const merged = {
     ...existing,
@@ -49,6 +58,8 @@ function normalizeTrip(input, existing = {}) {
     interests: [], pace: "balanced", avoid: [], constraints: [], ...merged.preferences
   };
   if (!['relaxed', 'balanced', 'packed'].includes(preferences.pace)) throw badRequest("preferences.pace is invalid");
+  if (merged.startDate !== undefined && typeof merged.startDate !== "string") throw badRequest("startDate must be a string");
+  const startDate = merged.startDate?.trim() || undefined;
   return {
     ...merged,
     id: merged.id ?? randomUUID(),
@@ -57,6 +68,9 @@ function normalizeTrip(input, existing = {}) {
     title: merged.title?.trim() || `${destinations.join(" · ")}之旅`,
     originalPrompt: merged.originalPrompt.trim(),
     destinations: destinations.map((item) => item.trim()),
+    travelTiming: merged.travelTiming?.trim() || undefined,
+    startDate,
+    endDate: calculateEndDate(startDate, merged.durationDays),
     itinerary: Array.isArray(merged.itinerary) ? merged.itinerary : [],
     preferences
   };
@@ -80,6 +94,11 @@ const server = createServer(async (request, response) => {
     const path = new URL(request.url, `http://${request.headers.host}`).pathname;
     if (request.method === "GET" && path === "/api/health") return send(response, 200, { status: "ok" });
     if (request.method === "GET" && path === "/api/trips") return send(response, 200, { trips: db.list() });
+    if (request.method === "POST" && path === "/api/trips/parse") {
+      const { prompt, currentIntent } = await readJson(request);
+      const assessment = await extractTripIntent(prompt, currentIntent);
+      return send(response, 200, assessment);
+    }
     const match = path.match(/^\/api\/trips\/([\w-]+)$/);
     const generateMatch = path.match(/^\/api\/trips\/([\w-]+)\/generate$/);
     if (request.method === "POST" && generateMatch) {

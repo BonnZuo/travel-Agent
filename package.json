@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --env-file-if-exists=.env server/index.mjs",
-    "dev": "node --env-file-if-exists=.env --watch server/index.mjs",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server/index.mjs",
+    "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch server/index.mjs",
     "test:api": "node --test server/*.test.mjs"
   }
 }
