@@ -77,6 +77,8 @@ curl -X POST http://localhost:3000/api/trips/parse \
 
 `PATCH /api/trips/:tripId` 接受旅行对象的部分字段。服务端会合并嵌套的 `travelers` 与 `preferences`，递增 `version`，并更新 `updatedAt`。
 
+前端“我的行程”使用 `GET /api/trips` 加载全部旅行，并通过更新 `status` 在 `draft`、`ready` 与 `archived` 之间切换。归档不会删除行程或照片。
+
 ```bash
 curl -X PATCH http://localhost:3000/api/trips/TRIP_ID \
   -H 'content-type: application/json' \
